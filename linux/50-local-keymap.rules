@@ -1,0 +1,15 @@
+# Local Keymap - let the logged-in desktop user talk to keyboard configuration interfaces.
+#
+# Linux only lets root open /dev/hidraw* by default. VIA/QMK and Venom keyboards are configured
+# through a hidraw interface, so without this rule the app can't see them.
+#
+# Install:
+#   sudo cp 50-local-keymap.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# then unplug and replug the keyboard.
+
+# Any hidraw device: access for the user sitting at the machine (same approach VIA documents).
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0660", TAG+="uaccess"
+
+# Narrower alternative: only Geonworks Venom HE boards (comment out the line above to use only this).
+# KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="534b", MODE="0660", TAG+="uaccess"

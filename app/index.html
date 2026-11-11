@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Local Keymap</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='7' fill='%236750A4'/%3E%3Cpath fill='%23fff' transform='translate(3 3) scale(.75)' d='M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Material icons (Apache 2.0) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></symbol>
+    <symbol id="i-tune" viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><path d="M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93 0-1.21-.99-2.2-2.2-2.2-1.21 0-2.2.99-2.2 2.2 0 .85.5 1.56 1.2 1.93V13c0 1.11.89 2 2 2h3v3.05c-.71.37-1.2 1.1-1.2 1.95 0 1.22.99 2.2 2.2 2.2 1.21 0 2.2-.98 2.2-2.2 0-.85-.49-1.58-1.2-1.95V15h3c1.11 0 2-.89 2-2v-2h1V7h-4z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></symbol>
+    <symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></symbol>
+    <symbol id="i-delete" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
+    <symbol id="i-science" viewBox="0 0 24 24"><path d="M19.8 18.4L14 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81H9.04c-.42 0-.65.48-.39.81L10 6.5v4.17L4.2 18.4c-.49.66-.02 1.6.8 1.6h14c.82 0 1.29-.94.8-1.6z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 20H4v-4h4v4zm0-6H4v-4h4v4zm0-6H4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4z"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></symbol>
+    <symbol id="i-speed" viewBox="0 0 24 24"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></symbol>
+  </svg>
+
+  <div class="app">
+    <nav class="rail" aria-label="Sections">
+      <div class="rail-logo" aria-hidden="true" title="Local Keymap">LK</div>
+      <button class="rail-item active" data-tab="tester">
+        <span class="rail-ind"><svg class="icon"><use href="#i-keyboard"/></svg></span>
+        <span class="rail-label">Tester</span>
+      </button>
+      <button class="rail-item" data-tab="keymap">
+        <span class="rail-ind"><svg class="icon"><use href="#i-tune"/></svg></span>
+        <span class="rail-label">Keymap</span>
+      </button>
+    </nav>
+
+    <div class="content">
+      <header class="top-bar">
+        <h1 id="pageTitle" class="t-title-large">Key tester</h1>
+        <span class="spacer"></span>
+        <span class="device-status"><svg class="icon s18"><use href="#i-usb"/></svg><span id="devStatus">No keyboard connected</span></span>
+        <button id="btnConnect" class="btn filled"><svg class="icon"><use href="#i-usb"/></svg><span>Connect keyboard</span></button>
+      </header>
+
+      <div id="noHid" class="banner hidden">
+        <svg class="icon"><use href="#i-warning"/></svg>
+        <span>Keyboard access (WebHID) isn't available in this window, so keyboards can't be configured. The key tester still works.</span>
+      </div>
+
+      <main>
+        <!-- ======================= KEY TESTER ======================= -->
+        <section id="tab-tester" class="tab active">
+          <div class="toolbar">
+            <div id="testerMode" class="segmented" role="group" aria-label="Test mode">
+              <button data-mode="browser" class="active">Any keyboard</button>
+              <button data-mode="matrix">Switch matrix</button>
+            </div>
+            <button id="btnTesterReset" class="btn outlined"><svg class="icon"><use href="#i-refresh"/></svg>Reset</button>
+            <button id="btnFullscreen" class="btn text" title="Fullscreen also captures keys like Win and Alt+Tab"><svg class="icon"><use href="#i-fullscreen"/></svg><span>Fullscreen</span></button>
+            <span class="spacer"></span>
+            <span id="testerRate" class="t-body-small muted"></span>
+            <span id="testerCount" class="badge"></span>
+          </div>
+          <div id="testerBoard" class="board-host"></div>
+          <p id="testerHint" class="hint"></p>
+          <div class="tester-info">
+            <div id="testerLast" class="card filled last">
+              <div class="t-label-medium muted">Last key</div>
+              <div class="last-key" id="lastKey">-</div>
+              <dl>
+                <dt>code</dt><dd id="lastCode">-</dd>
+                <dt>keyCode</dt><dd id="lastKeyCode">-</dd>
+              </dl>
+            </div>
+            <div class="card filled log">
+              <div class="t-label-medium muted">Recent events</div>
+              <ul id="testerLog"></ul>
+            </div>
+            <div id="testerExtrasWrap" class="card filled extras hidden">
+              <div class="t-label-medium muted">Keys not on this layout</div>
+              <div id="testerExtras" class="chip-set"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================= KEYMAP ======================= -->
+        <section id="tab-keymap" class="tab">
+          <div id="kmEmpty" class="card outlined empty">
+            <div class="empty-icon"><svg class="icon"><use href="#i-usb"/></svg></div>
+            <h2 class="t-headline-small">Connect a keyboard</h2>
+            <p class="t-body-medium muted">Plug the keyboard in by USB, then choose it from the list. VIA-compatible keyboards (QMK/VIA, Vial) and Geonworks Venom HE boards are supported.</p>
+            <div class="actions">
+              <button id="btnConnect2" class="btn filled"><svg class="icon"><use href="#i-usb"/></svg>Connect keyboard</button>
+              <button id="btnDemo" class="btn tonal"><svg class="icon"><use href="#i-science"/></svg>Try the demo keyboard</button>
+            </div>
+            <p class="t-body-small muted">Everything runs on this computer. Nothing is downloaded or uploaded.</p>
+          </div>
+
+          <div id="kmNeedDef" class="card outlined empty hidden">
+            <div class="empty-icon"><svg class="icon"><use href="#i-file"/></svg></div>
+            <h2 class="t-headline-small">Load the layout for <span id="needDefName"></span></h2>
+            <p class="t-body-medium muted">VIA keyboards don't store their physical layout, so the app needs the keyboard's VIA definition file (<code>.json</code>), the same file VIA's Design tab uses. It's remembered after the first time.</p>
+            <p class="t-body-small muted" id="needDefIds"></p>
+            <div class="actions">
+              <button id="btnLoadDef" class="btn filled"><svg class="icon"><use href="#i-file"/></svg>Open definition file</button>
+              <button id="btnOpenDefs" class="btn text hidden" title="Files in this folder are matched to keyboards automatically"><svg class="icon"><use href="#i-folder"/></svg>Definitions folder</button>
+              <span class="t-body-small muted">or drop the file anywhere on this window</span>
+            </div>
+            <details class="expander">
+              <summary>Where do I get it?</summary>
+              <ul class="t-body-medium">
+                <li>The keyboard maker's support or download page (often called "VIA JSON").</li>
+                <li>The VIA keyboards repository on GitHub: <code>the-via/keyboards</code>, folder <code>v3/&lt;maker&gt;/&lt;board&gt;</code>.</li>
+                <li>Files in the <b>Definitions folder</b> are matched to keyboards automatically.</li>
+              </ul>
+            </details>
+            <details class="expander">
+              <summary>No definition file? Use a plain matrix grid</summary>
+              <p class="t-body-small muted">Shows every matrix position as a grid. The switch matrix tester helps you find which position is which key.</p>
+              <div class="actions">
+                <label class="field small"><span class="field-label">Rows</span><input id="gridRows" type="number" min="1" max="32" value="5"></label>
+                <label class="field small"><span class="field-label">Columns</span><input id="gridCols" type="number" min="1" max="32" value="15"></label>
+                <button id="btnGrid" class="btn tonal"><svg class="icon"><use href="#i-grid"/></svg>Use grid</button>
+              </div>
+            </details>
+          </div>
+
+          <div id="kmEditor" class="hidden">
+            <div id="devPanel" class="card filled dev-panel hidden"></div>
+            <div class="toolbar">
+              <span class="t-label-large muted">Layer</span>
+              <div id="layerBtns" class="segmented" role="group" aria-label="Layer"></div>
+              <span id="layoutOptsWrap" class="opts"><span id="layoutOpts"></span></span>
+              <span class="spacer"></span>
+              <button id="btnBackup" class="btn outlined" title="Save every layer to a .json file"><svg class="icon"><use href="#i-download"/></svg>Save backup</button>
+              <button id="btnRestore" class="btn outlined" title="Write a saved backup to the keyboard"><svg class="icon"><use href="#i-upload"/></svg>Restore</button>
+              <button id="btnChangeDef" class="btn text" title="Load a different definition file"><svg class="icon"><use href="#i-file"/></svg>Definition</button>
+              <button id="btnForgetDef" class="btn text" title="Forget the saved definition for this keyboard"><svg class="icon"><use href="#i-delete"/></svg>Forget</button>
+            </div>
+            <div id="kmBoard" class="board-host"></div>
+            <p class="t-body-small muted board-caption" id="defSource"></p>
+
+            <div class="card outlined picker">
+              <div class="pk-head">
+                <div id="selInfo" class="sel-info t-body-large"></div>
+                <div id="slotBtns" class="segmented small"></div>
+                <span class="spacer"></span>
+                <button id="btnListen" class="btn tonal"><svg class="icon"><use href="#i-keyboard"/></svg><span>Assign by pressing a key</span></button>
+              </div>
+              <div class="any">
+                <label class="field grow">
+                  <span class="field-label">Any keycode</span>
+                  <input id="anyInput" type="text" spellcheck="false" autocomplete="off" placeholder="LT(1, KC_SPC) · LCTL_T(KC_ESC) · LCTL(KC_C) · MO(2) · 0x7C16">
+                </label>
+                <button id="btnAny" class="btn filled">Assign</button>
+              </div>
+              <div id="anyPreview" class="any-preview t-body-small"></div>
+              <div id="pkTabs" class="chip-set pk-tabs" role="tablist"></div>
+              <div id="pkBody" class="pk-body"></div>
+            </div>
+            <p class="t-body-small muted">Changes are written to the keyboard immediately and kept after unplugging.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="mdDialog" class="md-dialog">
+    <form method="dialog">
+      <h2 id="mdDialogTitle" class="t-headline-small"></h2>
+      <p id="mdDialogText" class="t-body-medium"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn text">Cancel</button>
+        <button value="ok" id="mdDialogOk" class="btn text">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="devDialog" class="md-dialog">
+    <form method="dialog">
+      <h2 class="t-headline-small">Choose a keyboard</h2>
+      <p class="t-body-medium">Only keyboards this app can configure are listed: VIA-compatible boards and Geonworks Venom HE.</p>
+      <div id="devList" class="dev-list" role="radiogroup" aria-label="Keyboards"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn text">Cancel</button>
+        <button value="ok" id="devDialogOk" class="btn text">Connect</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="fileDef" accept=".json,application/json" hidden>
+  <input type="file" id="fileRestore" accept=".json,application/json" hidden>
+
+  <script src="js/keycodes.js"></script>
+  <script src="js/kle.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/via.js"></script>
+  <script src="js/venom.js"></script>
+  <script src="js/mock.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/tester.js"></script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+{
+  "name": "local-keymap",
+  "productName": "Local Keymap",
+  "version": "0.1.0",
+  "description": "Offline key tester and keymap editor for VIA-compatible keyboards and Geonworks Venom HE boards.",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "author": {
+    "name": "FanzhouKong",
+    "email": "36810889+FanzhouKong@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/FanzhouKong/local-keymap",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FanzhouKong/local-keymap.git"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "smoke": "electron . --smoke"
+  },
+  "build": {
+    "appId": "app.localkeymap.desktop",
+    "productName": "Local Keymap",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "app/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "definitions",
+        "to": "definitions"
+      },
+      {
+        "from": "linux",
+        "to": "linux"
+      }
+    ],
+    "artifactName": "LocalKeymap-${version}-${os}-${arch}.${ext}",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "LocalKeymap-${version}-win-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "synopsis": "Offline keyboard tester and keymap editor"
+    }
+  },
+  "devDependencies": {
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0"
+  }
+}
