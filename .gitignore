@@ -6,3 +6,4 @@ dist/
 Thumbs.db
 smoke-*.png
 smoke-report.json
+generated/

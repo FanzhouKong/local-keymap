@@ -1,10 +1,7 @@
-Put VIA keyboard definition files (.json) in this folder.
+You usually don't need anything here: Local Keymap finds layouts by itself (Vial keyboards carry
+their own, VIA's keyboard list ships with the app, and anything else gets a matrix grid).
 
-When a keyboard connects, Local Keymap looks here for a file whose "vendorId" and "productId"
-match it and loads that layout automatically. File names don't matter.
-
-Where to get a definition:
-  - the keyboard maker's download/support page (often called the "VIA JSON")
-  - the VIA keyboards repository on GitHub: the-via/keyboards, folder v3/<maker>/<keyboard>/
-
-You can also just open or drop the file in the app; it is remembered after the first time.
+Put a VIA keyboard definition file (.json) in this folder only to override that, for example for a
+keyboard newer than this release of the app or a board with custom firmware. When a keyboard
+connects, a file here whose "vendorId" and "productId" match it is used first. File names don't
+matter.

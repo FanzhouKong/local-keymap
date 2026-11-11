@@ -39,7 +39,13 @@
     '2,1': 'KC_MPRV', '2,3': 'KC_MNXT', '1,13': 'QK_BOOT', '3,13': 'LT(2, KC_RSFT)',
   };
 
-  function create() {
+  /** opts (for testing): definition (false = no built-in layout, so the app has to find one),
+   *  vialXz (Uint8Array: act as a Vial keyboard serving this compressed layout), boundsCheck,
+   *  vendorId / productId / productName (pretend to be another keyboard). */
+  function create(opts = {}) {
+    const withDefinition = opts.definition !== false && !opts.vialXz;
+    const vial = opts.vialXz || null;
+    const boundsCheck = opts.boundsCheck !== false;
     const kc = new Keycodes(12);
     const km = new Uint16Array(LAYERS * ROWS * COLS).fill(1); // KC_TRNS
     const at = (l, r, c) => (l * ROWS + r) * COLS + c;
@@ -63,9 +69,10 @@
 
     const dev = new EventTarget();
     Object.assign(dev, {
-      opened: false, vendorId: 0x4c4b, productId: 0x0060, productName: 'Demo 60% (pretend)',
+      opened: false, vendorId: opts.vendorId || 0x4c4b, productId: opts.productId || 0x0060,
+      productName: opts.productName || 'Demo 60% (pretend)',
       collections: [{ usagePage: 0xff60, usage: 0x61, outputReports: [{ reportId: 0, items: [{ reportSize: 8, reportCount: 32 }] }] }],
-      mockDefinition: DEFINITION,
+      mockDefinition: withDefinition ? DEFINITION : null,
       async open() { this.opened = true; },
       async close() { this.opened = false; },
       async sendReport(_id, data) {
@@ -85,7 +92,7 @@
     function handle(d) {
       const u16 = (i) => (d[i] << 8) | d[i + 1];
       switch (d[0]) {
-        case 0x01: d[1] = 0; d[2] = 12; break; // protocol 12
+        case 0x01: d[1] = 0; d[2] = vial ? 9 : 12; break; // Vial firmware reports VIA protocol 9
         case 0x02:
           if (d[1] === 0x02) { d[2] = layoutOptions >>> 24; d[3] = (layoutOptions >>> 16) & 255; d[4] = (layoutOptions >>> 8) & 255; d[5] = layoutOptions & 255; }
           else if (d[1] === 0x03) {
@@ -102,7 +109,12 @@
           if (d[1] === 0x02) layoutOptions = ((d[2] << 24) | (d[3] << 16) | (d[4] << 8) | d[5]) >>> 0;
           else d[0] = 0xff;
           break;
-        case 0x04: { const v = km[at(d[1], d[2], d[3])]; d[4] = v >> 8; d[5] = v & 255; break; }
+        case 0x04: {
+          const out = boundsCheck && (d[1] >= LAYERS || d[2] >= ROWS || d[3] >= COLS);
+          const v = out ? 0 : km[at(d[1], d[2], d[3])] || 0;
+          d[4] = v >> 8; d[5] = v & 255;
+          break;
+        }
         case 0x05: km[at(d[1], d[2], d[3])] = u16(4); break;
         case 0x0c: d[1] = 16; break;
         case 0x11: d[1] = LAYERS; break;
@@ -110,6 +122,16 @@
         case 0x13: { const off = u16(1), n = d[3]; for (let i = 0; i < n; i++) { const p = (off + i) >> 1; km[p] = (off + i) % 2 ? (km[p] & 0xff00) | d[4 + i] : (km[p] & 0xff) | (d[4 + i] << 8); } break; }
         case 0x14: { const v = enc[d[1]][d[2]][d[3] ? 1 : 0]; d[4] = v >> 8; d[5] = v & 255; break; }
         case 0x15: enc[d[1]][d[2]][d[3] ? 1 : 0] = u16(4); break;
+        case 0xfe: {
+          if (!vial) { d[0] = 0xff; break; }
+          const cmd = d[1], put32 = (v) => { d[0] = v & 255; d[1] = (v >> 8) & 255; d[2] = (v >> 16) & 255; d[3] = v >>> 24; };
+          if (cmd === 0x00) { d.fill(0); put32(6); d[4] = 0x4c; d[5] = 0x4b; }
+          else if (cmd === 0x01) { d.fill(0); put32(vial.length); }
+          else if (cmd === 0x02) { const page = d[2] | (d[3] << 8); d.fill(0); d.set(vial.subarray(page * 32, page * 32 + 32)); }
+          else if (cmd === 0x03) { const e = enc[d[2]] && enc[d[2]][d[3]]; if (e) { d.fill(0); d[0] = e[0] >> 8; d[1] = e[0] & 255; d[2] = e[1] >> 8; d[3] = e[1] & 255; } }
+          else if (cmd === 0x04) { const e = enc[d[2]] && enc[d[2]][d[3]]; if (e) e[d[4] ? 1 : 0] = (d[5] << 8) | d[6]; }
+          break;
+        }
         default: d[0] = 0xff;
       }
     }

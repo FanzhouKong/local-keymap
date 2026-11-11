@@ -66,7 +66,13 @@
           const enc = L[4] && ENCODER_RE.exec(L[4]);
           if (enc) key.ei = +enc[1];
           const rc = pair(L[0]);
-          if (rc) { key.row = rc[0]; key.col = rc[1]; }
+          if (rc && L[4] === 'e') {
+            // Vial: one key per knob direction, "index,direction" with direction 0 = counter-clockwise
+            key.ei = rc[0];
+            key.edir = rc[1] ? 1 : 0;
+          } else if (rc) {
+            key.row = rc[0]; key.col = rc[1];
+          }
           const go = pair(L[8]);
           if (go) { key.group = go[0]; key.option = go[1]; }
           if (!st.d && (rc || key.ei !== undefined)) {

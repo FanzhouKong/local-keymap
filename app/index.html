@@ -106,31 +106,19 @@
 
           <div id="kmNeedDef" class="card outlined empty hidden">
             <div class="empty-icon"><svg class="icon"><use href="#i-file"/></svg></div>
-            <h2 class="t-headline-small">Load the layout for <span id="needDefName"></span></h2>
-            <p class="t-body-medium muted">VIA keyboards don't store their physical layout, so the app needs the keyboard's VIA definition file (<code>.json</code>), the same file VIA's Design tab uses. It's remembered after the first time.</p>
+            <h2 class="t-headline-small">Couldn't work out the layout of <span id="needDefName"></span></h2>
+            <p class="t-body-medium muted">It isn't in VIA's keyboard list, doesn't carry its own layout (as Vial keyboards do), and its key matrix couldn't be read. Enter the matrix size to edit keys as a grid, or load the keyboard's VIA definition file (<code>.json</code>) if you have one.</p>
             <p class="t-body-small muted" id="needDefIds"></p>
             <div class="actions">
-              <button id="btnLoadDef" class="btn filled"><svg class="icon"><use href="#i-file"/></svg>Open definition file</button>
+              <label class="field small"><span class="field-label">Rows</span><input id="gridRows" type="number" min="1" max="64" value="5"></label>
+              <label class="field small"><span class="field-label">Columns</span><input id="gridCols" type="number" min="1" max="32" value="15"></label>
+              <button id="btnGrid" class="btn filled"><svg class="icon"><use href="#i-grid"/></svg>Use grid</button>
+            </div>
+            <div class="actions">
+              <button id="btnLoadDef" class="btn tonal"><svg class="icon"><use href="#i-file"/></svg>Open definition file</button>
               <button id="btnOpenDefs" class="btn text hidden" title="Files in this folder are matched to keyboards automatically"><svg class="icon"><use href="#i-folder"/></svg>Definitions folder</button>
               <span class="t-body-small muted">or drop the file anywhere on this window</span>
             </div>
-            <details class="expander">
-              <summary>Where do I get it?</summary>
-              <ul class="t-body-medium">
-                <li>The keyboard maker's support or download page (often called "VIA JSON").</li>
-                <li>The VIA keyboards repository on GitHub: <code>the-via/keyboards</code>, folder <code>v3/&lt;maker&gt;/&lt;board&gt;</code>.</li>
-                <li>Files in the <b>Definitions folder</b> are matched to keyboards automatically.</li>
-              </ul>
-            </details>
-            <details class="expander">
-              <summary>No definition file? Use a plain matrix grid</summary>
-              <p class="t-body-small muted">Shows every matrix position as a grid. The switch matrix tester helps you find which position is which key.</p>
-              <div class="actions">
-                <label class="field small"><span class="field-label">Rows</span><input id="gridRows" type="number" min="1" max="32" value="5"></label>
-                <label class="field small"><span class="field-label">Columns</span><input id="gridCols" type="number" min="1" max="32" value="15"></label>
-                <button id="btnGrid" class="btn tonal"><svg class="icon"><use href="#i-grid"/></svg>Use grid</button>
-              </div>
-            </details>
           </div>
 
           <div id="kmEditor" class="hidden">
@@ -142,8 +130,18 @@
               <span class="spacer"></span>
               <button id="btnBackup" class="btn outlined" title="Save every layer to a .json file"><svg class="icon"><use href="#i-download"/></svg>Save backup</button>
               <button id="btnRestore" class="btn outlined" title="Write a saved backup to the keyboard"><svg class="icon"><use href="#i-upload"/></svg>Restore</button>
-              <button id="btnChangeDef" class="btn text" title="Load a different definition file"><svg class="icon"><use href="#i-file"/></svg>Definition</button>
-              <button id="btnForgetDef" class="btn text" title="Forget the saved definition for this keyboard"><svg class="icon"><use href="#i-delete"/></svg>Forget</button>
+              <button id="btnChangeDef" class="btn text" title="Use a VIA definition file instead of the layout found automatically"><svg class="icon"><use href="#i-file"/></svg>Definition</button>
+              <button id="btnForgetDef" class="btn text hidden" title="Forget the layout saved for this keyboard and find it automatically again"><svg class="icon"><use href="#i-delete"/></svg>Forget</button>
+            </div>
+            <div id="gridNote" class="banner grid-note hidden">
+              <svg class="icon"><use href="#i-grid"/></svg>
+              <span id="gridNoteText" class="t-body-medium"></span>
+              <div class="grid-note-actions">
+                <label class="field small"><span class="field-label">Rows</span><input id="gridRows2" type="number" min="1" max="64"></label>
+                <label class="field small"><span class="field-label">Columns</span><input id="gridCols2" type="number" min="1" max="32"></label>
+                <button id="btnGrid2" class="btn tonal">Apply</button>
+                <button id="btnLoadDef2" class="btn text"><svg class="icon"><use href="#i-file"/></svg>Definition file</button>
+              </div>
             </div>
             <div id="kmBoard" class="board-host"></div>
             <p class="t-body-small muted board-caption" id="defSource"></p>
@@ -204,6 +202,7 @@
   <script src="js/keycodes.js"></script>
   <script src="js/kle.js"></script>
   <script src="js/board.js"></script>
+  <script src="js/xz.js"></script>
   <script src="js/via.js"></script>
   <script src="js/venom.js"></script>
   <script src="js/mock.js"></script>

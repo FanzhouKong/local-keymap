@@ -69,7 +69,7 @@
       T.tested.forEach((c) => paint(c));
       $('#testerHint').textContent = 'Press keys on any keyboard. Keys fill in while held and stay tinted once tested. Fn and some media keys never reach the browser; use the switch matrix test for those.';
     } else if (!matrixReady()) {
-      host.innerHTML = '<div class="empty small"><p>Connect a VIA keyboard (and load its definition on the Keymap tab) to test its switch matrix.</p></div>';
+      host.innerHTML = '<div class="empty small"><p>Connect a VIA keyboard to test its switch matrix.</p></div>';
       $('#testerHint').textContent = 'The switch matrix test reads which physical switches are closed, straight from the firmware.';
     } else {
       startMatrix();
@@ -208,18 +208,7 @@
   function applyMatrix(bytes) {
     const S = App().state, M = T.matrix;
     const { rows, cols } = S.def;
-    const bpr = Math.ceil(cols / 8);
-    const down = new Set();
-    for (let r = 0; r < rows; r++) {
-      for (let b = 0; b < bpr; b++) {
-        const byte = bytes[r * bpr + b] || 0;
-        if (!byte) continue;
-        const colOffset = 8 * (bpr - 1 - b);
-        for (let bit = 0; bit < 8; bit++) {
-          if ((byte >> bit) & 1 && colOffset + bit < cols) down.add(r * cols + colOffset + bit);
-        }
-      }
-    }
+    const down = App().decodeMatrix(bytes, rows, cols);
     const sig = [...down].join(',');
     if (sig === M.last) return;
     const prev = new Set(M.last ? M.last.split(',').filter(Boolean).map(Number) : []);

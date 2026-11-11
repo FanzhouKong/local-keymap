@@ -292,6 +292,13 @@ main { max-width: 1440px; padding: 8px 24px 40px 8px; }
 }
 #tab-tester .key { cursor: default; }
 .board-host .banner { margin: 0 0 16px; }
+.grid-note { margin: 0 0 16px; flex-wrap: wrap; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.grid-note > .icon { flex: none; }
+.grid-note > span { flex: 1 1 320px; }
+.grid-note-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; --field-bg: var(--md-secondary-container); }
+.grid-note .field.small input { width: 80px; }
+.grid-note.warn { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+.grid-note.warn .grid-note-actions { --field-bg: var(--md-tertiary-container); }
 
 /* ------------------------------------------------ tester */
 .tester-info { display: grid; grid-template-columns: minmax(220px, 280px) 1fr minmax(220px, 340px); gap: 16px; margin-top: 4px; }

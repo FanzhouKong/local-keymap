@@ -69,6 +69,7 @@
     }
     return {
       raw: json,
+      grid: json.grid === true,
       name: typeof json.name === 'string' ? json.name : 'Keyboard',
       vendorId: parseInt(json.vendorId, 16),
       productId: parseInt(json.productId, 16),
@@ -82,25 +83,66 @@
 
   const desktop = window.localKeymap || null; // set by the Electron shell
 
-  async function findDefinition(vid, pid) {
+  function gridJson(rows, cols) {
+    return {
+      name: S.dev.name, vendorId: hex4(S.dev.vendorId), productId: hex4(S.dev.productId), grid: true,
+      matrix: { rows, cols }, layouts: { keymap: KLE.gridKeymap(rows, cols) },
+    };
+  }
+
+  /** Finds the keyboard's layout without asking for a file. In order:
+   *  1. a file in the definitions folder   2. a file loaded earlier in the app
+   *  3. the layout stored in the keyboard (Vial)   4. a built-in layout (Venom, demo)
+   *  5. VIA's keyboard list, shipped with the app   6. a matrix grid, size read from the keyboard */
+  async function findDefinition(dev, hid) {
+    const vid = dev.vendorId, pid = dev.productId;
     const matches = (d) => parseInt(d.vendorId, 16) === vid && parseInt(d.productId, 16) === pid;
-    // 1) definitions folders: the user's (app data) first, then the ones bundled with the app
     if (desktop) {
       try {
         const list = await desktop.listDefinitions();
         const hit = list.find((d) => d.source === 'user' && matches(d)) || list.find(matches);
         if (hit) {
           const text = await desktop.readDefinition(hit.source, hit.file);
-          return { def: prepareDefinition(JSON.parse(text)), source: `definitions/${hit.file}` };
+          return { def: prepareDefinition(JSON.parse(text)), source: `definitions/${hit.file}`, kind: 'file' };
         }
       } catch (e) { console.warn(e); }
     }
-    // 2) a definition loaded earlier in this app
     const saved = store.get(defKey(vid, pid));
     if (saved) {
-      try { return { def: prepareDefinition(JSON.parse(saved)), source: 'saved in app' }; } catch (e) { console.warn(e); }
+      try { return { def: prepareDefinition(JSON.parse(saved)), source: 'saved in app', kind: 'saved' }; } catch (e) { console.warn(e); }
+    }
+    if (dev.vialProtocol >= 0 && dev.readVialDefinition) {
+      try {
+        setStatus('Reading the layout from the keyboard…');
+        const json = await dev.readVialDefinition((p) => setStatus(`Reading the layout from the keyboard… ${Math.round(p * 100)}%`));
+        if (typeof json.name !== 'string') json.name = dev.name;
+        return { def: prepareDefinition(json), source: 'layout stored in the keyboard (Vial)', kind: 'vial' };
+      } catch (e) { console.warn('Vial layout:', e); }
+    }
+    const builtIn = hid.mockDefinition || dev.definition;
+    if (builtIn) return { def: prepareDefinition(builtIn), source: hid.mockDefinition ? 'built-in demo' : 'built-in layout', kind: 'builtin' };
+    if (desktop && desktop.findViaDefinition) {
+      try {
+        const hit = await desktop.findViaDefinition(vid, pid);
+        if (hit) return { def: prepareDefinition(hit.definition), source: `VIA keyboard list (${String(hit.generatedAt).slice(0, 10)})`, kind: 'via' };
+      } catch (e) { console.warn(e); }
+    }
+    if (dev.detectMatrix) {
+      try {
+        setStatus('Working out the key matrix…');
+        const { rows, cols, sure } = await dev.detectMatrix(S.layers);
+        const def = prepareDefinition(gridJson(rows, cols));
+        def.gridSure = sure;
+        return { def, source: `matrix grid, ${rows} × ${cols} found automatically`, kind: 'grid' };
+      } catch (e) { console.warn('Matrix size:', e); }
     }
     return null;
+  }
+
+  async function loadAutoDefinition(hid) {
+    const found = await findDefinition(S.dev, hid);
+    if (found) await useDefinition(found.def, found.source, found.kind);
+    else showNeedDefinition();
   }
 
   // ------------------------------------------------------------------ connection
@@ -154,7 +196,7 @@
       if (S.busy) return;
       try {
         await S.dev.setProfile(p);
-        await useDefinition(S.def, $('#defSource').textContent.split(' — ').pop());
+        await useDefinition(S.def, S.source, S.sourceKind);
       } catch (e) { toast('Could not switch profile: ' + e.message, 'error'); }
     }));
     host.appendChild(group('speed', 'Polling rate', [[0, '8000 Hz'], [1, '1000 Hz']], i.force1k ? 1 : 0, (v) => setPolling(v === 1)));
@@ -224,11 +266,7 @@
       S.kc = new Keycodes(S.protocol, [], { vialProtocol: dev.vialProtocol });
       updateStatus();
       emit('lk:device');
-      const builtIn = hid.mockDefinition || dev.definition;
-      const found = (await findDefinition(dev.vendorId, dev.productId))
-        || (builtIn && { def: prepareDefinition(builtIn), source: hid.mockDefinition ? 'built-in demo' : 'built-in layout' });
-      if (found) await useDefinition(found.def, found.source);
-      else showNeedDefinition();
+      await loadAutoDefinition(hid);
     } catch (e) {
       console.error(e);
       toast(`${dev.name} did not answer like a ${venom ? 'Venom' : 'VIA'} keyboard (${e.message}).`, 'error', 7000);
@@ -251,7 +289,9 @@
   }
 
   function resetEditor() {
+    stopFinder();
     S.def = null; S.keymap = null; S.enc = null; S.sel = null; S.opts = []; S.layer = 0;
+    S.source = ''; S.sourceKind = '';
     setListen(false);
     show('#kmEditor', false);
     show('#kmNeedDef', false);
@@ -260,6 +300,7 @@
   }
 
   function showNeedDefinition() {
+    stopFinder();
     S.def = null; S.keymap = null;
     show('#kmEmpty', false);
     show('#kmEditor', false);
@@ -269,10 +310,13 @@
     if (S.dev.kind === 'venom') { $('#gridRows').value = 8; $('#gridCols').value = 16; }
   }
 
-  async function useDefinition(def, source) {
+  async function useDefinition(def, source, kind) {
+    stopFinder();
     S.busy = true;
     try {
       S.def = def;
+      S.source = source;
+      S.sourceKind = kind;
       S.kc = new Keycodes(S.protocol, def.customKeycodes, { vialProtocol: S.dev.vialProtocol });
       S.layer = 0; S.sel = null;
       S.opts = def.labels.map(() => 0);
@@ -286,11 +330,14 @@
       show('#kmNeedDef', false);
       show('#kmEditor', true);
       $('#defSource').textContent = `${def.name} — ${source}`;
+      show('#btnForgetDef', kind === 'saved');
+      renderGridNote();
       renderDevicePanel();
       renderPicker();
       renderKeymap();
       updateStatus();
       emit('lk:definition');
+      setTimeout(startFinder, 0);
     } catch (e) {
       console.error(e);
       toast('Could not read the keymap: ' + e.message, 'error', 7000);
@@ -333,7 +380,7 @@
     return out.sort((a, b) => a.y - b.y || a.x - b.x);
   }
 
-  async function loadDefinitionText(text) {
+  async function loadDefinitionText(text, source = 'saved in app') {
     let json;
     try { json = JSON.parse(text); } catch (e) { toast('That file is not valid JSON: ' + e.message, 'error', 7000); return; }
     let def;
@@ -345,17 +392,83 @@
       if (!ok) return;
     }
     store.set(defKey(S.dev.vendorId, S.dev.productId), text);
-    await useDefinition(def, 'saved in app');
+    await useDefinition(def, source, 'saved');
   }
 
-  async function useGrid() {
-    const rows = +$('#gridRows').value, cols = +$('#gridCols').value;
-    if (!(rows > 0 && rows <= 32 && cols > 0 && cols <= 32)) { toast('Rows and columns must be between 1 and 32.', 'error'); return; }
-    const json = {
-      name: `${S.dev.name} (${rows}×${cols} matrix grid)`, vendorId: hex4(S.dev.vendorId), productId: hex4(S.dev.productId),
-      matrix: { rows, cols }, layouts: { keymap: KLE.gridKeymap(rows, cols) },
+  /** A grid size chosen by hand is remembered for this keyboard (Forget returns to automatic). */
+  async function useGrid(rowsInput, colsInput) {
+    const rows = +rowsInput.value, cols = +colsInput.value;
+    if (!(rows > 0 && rows <= 64 && cols > 0 && cols <= 32)) { toast('Use 1-64 rows and 1-32 columns.', 'error'); return; }
+    if (!S.dev) return;
+    await loadDefinitionText(JSON.stringify(gridJson(rows, cols)), `matrix grid, ${rows} × ${cols} set by hand`);
+  }
+
+  function renderGridNote() {
+    const grid = !!(S.def && S.def.grid);
+    show('#gridNote', grid);
+    if (!grid) return;
+    const auto = S.sourceKind === 'grid';
+    $('#gridNoteText').textContent = `This keyboard isn't in VIA's list and doesn't carry its own layout, so its keys are shown in matrix order: ${S.def.rows} rows × ${S.def.cols} columns${auto ? ', read from the keyboard' : ''}. Each key shows what it does now; hold a key on the keyboard and it lights up here.`
+      + (auto && S.def.gridSure === false ? ' The keymap has too little variety to double-check this size; if the labels look shifted, correct the rows and columns.' : '');
+    $('#gridNote').classList.toggle('warn', auto && S.def.gridSure === false);
+    $('#gridRows2').value = S.def.rows;
+    $('#gridCols2').value = S.def.cols;
+  }
+
+  // ------------------------------------------------------------------ pressed keys light up in the editor
+  /** Raw switch matrix bytes (rows * ceil(cols/8), MSB byte first) -> Set of row*cols+col. */
+  function decodeMatrix(bytes, rows, cols) {
+    const bpr = Math.ceil(cols / 8);
+    const down = new Set();
+    for (let r = 0; r < rows; r++) {
+      for (let b = 0; b < bpr; b++) {
+        const byte = bytes[r * bpr + b] || 0;
+        if (!byte) continue;
+        const colOffset = 8 * (bpr - 1 - b);
+        for (let bit = 0; bit < 8; bit++) if ((byte >> bit) & 1 && colOffset + bit < cols) down.add(r * cols + colOffset + bit);
+      }
+    }
+    return down;
+  }
+
+  const finder = { gen: 0, timer: 0, fails: 0, last: '' };
+  function startFinder() {
+    stopFinder();
+    if (!S.dev || !S.def || !S.keymap || !S.dev.getMatrixState) return;
+    const gen = finder.gen; // a newer start/stop makes this loop end, even mid-read
+    const dev = S.dev;
+    const live = () => finder.gen === gen && S.dev === dev && !!S.def;
+    finder.fails = 0;
+    const tick = async () => {
+      if (!live()) return;
+      if (!S.busy && isTabActive('keymap') && !document.hidden) {
+        try {
+          const bytes = await dev.getMatrixState(S.def.rows, S.def.cols);
+          if (!live()) return;
+          showPressed(decodeMatrix(bytes, S.def.rows, S.def.cols));
+          finder.fails = 0;
+        } catch (e) {
+          if (!live()) return;
+          if (e.unhandled || ++finder.fails > 5) { stopFinder(); return; }
+        }
+      }
+      finder.timer = setTimeout(tick, 60);
     };
-    await loadDefinitionText(JSON.stringify(json));
+    tick();
+  }
+  function stopFinder() {
+    finder.gen++;
+    clearTimeout(finder.timer);
+    if (finder.last) showPressed(new Set());
+  }
+  function showPressed(down) {
+    const sig = [...down].join(',');
+    if (sig === finder.last) return;
+    finder.last = sig;
+    if (!S.def) return;
+    S.visible.forEach((k, i) => {
+      if (k.row >= 0 && S.els[i]) S.els[i].classList.toggle('pressed', down.has(k.row * S.def.cols + k.col));
+    });
   }
 
   // ------------------------------------------------------------------ keymap rendering
@@ -365,6 +478,7 @@
     if (!S.def) return;
     S.visible = visibleKeys();
     S.els = Board.render($('#kmBoard'), S.visible, { maxUnit: 64 });
+    finder.last = '';
     S.els.forEach((el, i) => el.addEventListener('mousedown', (e) => { e.preventDefault(); selectKey(i); }));
     renderLayerButtons();
     renderLayoutOptions();
@@ -375,7 +489,13 @@
     S.visible.forEach((k, i) => {
       const el = S.els[i];
       let label, title, code = null;
-      if (k.ei !== undefined) {
+      if (k.ei !== undefined && k.edir !== undefined) {
+        // Vial: one key per direction
+        const e = S.enc && S.enc[S.layer] && S.enc[S.layer][k.ei];
+        const arrow = k.edir ? '↻' : '↺';
+        label = e ? `${arrow} ${oneLine(S.kc.label(e[k.edir]))}` : `Knob ${k.ei} ${arrow}`;
+        title = e ? `Encoder ${k.ei} ${k.edir ? 'clockwise' : 'counter-clockwise'}: ${S.kc.name(e[k.edir])}` : `Encoder ${k.ei} (this firmware does not expose knob mapping)`;
+      } else if (k.ei !== undefined) {
         const e = S.enc && S.enc[S.layer] && S.enc[S.layer][k.ei];
         label = e ? `↺ ${oneLine(S.kc.label(e[0]))}\n↻ ${oneLine(S.kc.label(e[1]))}` : `Knob ${k.ei}`;
         title = e ? `Encoder ${k.ei}: ↺ ${S.kc.name(e[0])}  ↻ ${S.kc.name(e[1])}` : `Encoder ${k.ei} (this firmware does not expose knob mapping)`;
@@ -458,6 +578,8 @@
       S.sel = null; // clicking the selected key again deselects it
     } else if (k.ei === undefined) {
       S.sel = { i, slot: 'key' };
+    } else if (S.enc && k.edir !== undefined) {
+      S.sel = { i, slot: k.edir ? 'cw' : 'ccw' };
     } else if (S.enc) {
       S.sel = { i, slot: 'ccw' }; // switch to clockwise / press with the buttons under the keyboard
     } else if (k.row >= 0) {
@@ -488,7 +610,7 @@
     const special = S.sel.slot === 'key' && S.dev.keyInfo && S.dev.keyInfo(S.layer, k.row, k.col, S.kc);
     b.textContent = special ? special.title.split('\n')[0] : `${S.kc.name(code)} (${hex4(code)})`;
     info.appendChild(b);
-    if (k.ei !== undefined) {
+    if (k.ei !== undefined && k.edir === undefined) {
       const opts = [];
       if (S.enc) opts.push(['ccw', '↺ Counter-clockwise'], ['cw', '↻ Clockwise']);
       if (k.row >= 0) opts.push(['key', 'Press']);
@@ -532,11 +654,11 @@
 
   function advance() {
     const { i, slot } = S.sel;
-    if (slot === 'ccw') { S.sel = { i, slot: 'cw' }; return; }
+    if (slot === 'ccw' && S.visible[i].edir === undefined) { S.sel = { i, slot: 'cw' }; return; }
     for (let j = i + 1; j < S.visible.length; j++) {
       const k = S.visible[j];
       if (k.ei === undefined) { S.sel = { i: j, slot: 'key' }; return; }
-      if (S.enc) { S.sel = { i: j, slot: 'ccw' }; return; }
+      if (S.enc) { S.sel = { i: j, slot: k.edir ? 'cw' : 'ccw' }; return; }
       if (k.row >= 0) { S.sel = { i: j, slot: 'key' }; return; }
     }
     S.sel = null;
@@ -799,13 +921,15 @@
     $('#btnDemo').addEventListener('click', () => attach(MockVia.create()));
     $('#btnLoadDef').addEventListener('click', () => $('#fileDef').click());
     $('#btnChangeDef').addEventListener('click', () => $('#fileDef').click());
-    $('#btnForgetDef').addEventListener('click', () => {
-      if (!S.dev) return;
+    $('#btnForgetDef').addEventListener('click', async () => {
+      if (!S.dev || S.busy) return;
       store.del(defKey(S.dev.vendorId, S.dev.productId));
-      toast('Forgot the saved definition for this keyboard.');
-      showNeedDefinition();
+      toast('Forgot the saved layout. Looking the keyboard up again.');
+      await loadAutoDefinition(S.dev.hid);
     });
-    $('#btnGrid').addEventListener('click', useGrid);
+    $('#btnGrid').addEventListener('click', () => useGrid($('#gridRows'), $('#gridCols')));
+    $('#btnGrid2').addEventListener('click', () => useGrid($('#gridRows2'), $('#gridCols2')));
+    $('#btnLoadDef2').addEventListener('click', () => $('#fileDef').click());
     $('#btnBackup').addEventListener('click', backup);
     $('#btnRestore').addEventListener('click', () => $('#fileRestore').click());
     readFile($('#fileDef'), loadDefinitionText);
@@ -854,6 +978,6 @@
     updateStatus();
   }
 
-  window.App = { state: S, attach, detach, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, packOptions, unpackOptions };
+  window.App = { state: S, attach, detach, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, packOptions, unpackOptions, decodeMatrix };
   document.addEventListener('DOMContentLoaded', init);
 })();

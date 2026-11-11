@@ -1,8 +1,8 @@
 {
   "name": "local-keymap",
   "productName": "Local Keymap",
-  "version": "0.1.0",
-  "description": "Offline key tester and keymap editor for VIA-compatible keyboards and Geonworks Venom HE boards.",
+  "version": "1.0.0",
+  "description": "Offline key tester and keymap editor for VIA, Vial and Geonworks Venom HE keyboards. No definition files needed.",
   "private": true,
   "license": "GPL-3.0-only",
   "author": {
@@ -17,6 +17,9 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
+    "defs": "node scripts/build-via-definitions.js",
+    "test": "node test/run.js",
+    "predist": "node scripts/build-via-definitions.js --if-missing",
     "dist": "electron-builder --publish never",
     "smoke": "electron . --smoke"
   },
@@ -40,6 +43,10 @@
       {
         "from": "linux",
         "to": "linux"
+      },
+      {
+        "from": "generated/via-definitions.json.br",
+        "to": "via-definitions.json.br"
       }
     ],
     "artifactName": "LocalKeymap-${version}-${os}-${arch}.${ext}",

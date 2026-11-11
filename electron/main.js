@@ -9,6 +9,7 @@
 const { app, BrowserWindow, ipcMain, Menu, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
 const SMOKE = process.argv.find((a) => a.startsWith('--smoke'));
@@ -41,6 +42,32 @@ function listDefinitions() {
     }
   }
   return out;
+}
+
+// ------------------------------------------------------------------ VIA's keyboard list, shipped with the app
+// generated/via-definitions.json.br is built by scripts/build-via-definitions.js from the-via/keyboards.
+let viaBundle;
+function viaDefinitions() {
+  if (viaBundle !== undefined) return viaBundle;
+  viaBundle = null;
+  const file = app.isPackaged
+    ? path.join(process.resourcesPath, 'via-definitions.json.br')
+    : path.join(ROOT, 'generated', 'via-definitions.json.br');
+  try {
+    const data = JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(file)).toString('utf8'));
+    if (data && data.format === 'local-keymap-via-definitions' && data.definitions) viaBundle = data;
+  } catch (e) {
+    console.warn(`VIA keyboard list not available (${e.message}). Run "npm run defs" to build it.`);
+  }
+  return viaBundle;
+}
+
+function findViaDefinition(vid, pid) {
+  const b = viaDefinitions();
+  if (!b || !Number.isInteger(vid) || !Number.isInteger(pid)) return null;
+  const key = `${vid.toString(16).padStart(4, '0')}:${pid.toString(16).padStart(4, '0')}`;
+  const definition = b.definitions[key];
+  return definition ? { definition, commit: b.commit, generatedAt: b.generatedAt } : null;
 }
 
 function readDefinition(source, file) {
@@ -84,6 +111,11 @@ ipcMain.handle('lk:list-definitions', (e) => (fromApp(e) ? listDefinitions() : [
 ipcMain.handle('lk:read-definition', (e, source, file) => {
   if (!fromApp(e)) throw new Error('Not allowed');
   return readDefinition(source, file);
+});
+ipcMain.handle('lk:find-via-definition', (e, vid, pid) => (fromApp(e) ? findViaDefinition(vid, pid) : null));
+ipcMain.handle('lk:via-info', (e) => {
+  const b = fromApp(e) && viaDefinitions();
+  return b ? { count: b.count, commit: b.commit, generatedAt: b.generatedAt } : null;
 });
 ipcMain.handle('lk:open-definitions-folder', async (e) => {
   if (!fromApp(e)) return '';
@@ -206,10 +238,39 @@ async function runSmoke() {
       report.autoConnected = await js(`!!App.state.dev`);
       if (!report.autoConnected) await js(`document.querySelector('#btnConnect').click(); 1`, true);
       await wait(6000);
+      // read-only: would the matrix size have been found without any layout? (VIA keyboards)
+      report.detectMatrix = await js(`(async () => {
+        const d = App.state.dev;
+        if (!d || !d.detectMatrix) return null;
+        const t = performance.now();
+        try { const r = await d.detectMatrix(App.state.layers); return JSON.stringify(r) + ' in ' + Math.round(performance.now() - t) + ' ms'; }
+        catch (e) { return 'error: ' + e.message; }
+      })()`);
     } else {
-      await js(`App.attach(MockVia.create()).then(() => 1)`);
-      await wait(800);
+      // demo: built-in layout; grid: no layout anywhere (size worked out); via: pretend to be a
+      // keyboard from VIA's list (LK_SMOKE_VIA=vid:pid); vial: serve LK_SMOKE_VIAL (an .xz layout)
+      let opts = '{}';
+      if (SMOKE_MODE === 'grid') opts = '{ definition: false }';
+      if (SMOKE_MODE === 'via') {
+        const [vid, pid] = String(process.env.LK_SMOKE_VIA || '3434:0111').split(':').map((h) => parseInt(h, 16));
+        opts = `{ definition: false, vendorId: ${vid}, productId: ${pid}, productName: 'Pretend VIA keyboard' }`;
+      }
+      if (SMOKE_MODE === 'vial') opts = `{ vialXz: new Uint8Array(${JSON.stringify([...fs.readFileSync(process.env.LK_SMOKE_VIAL)])}), productName: 'Pretend Vial keyboard' }`;
+      await js(`App.attach(MockVia.create(${opts})).then(() => 1)`);
+      await wait(1500);
+      report.encoders = await js(`App.state.enc ? JSON.stringify(App.state.enc[0]) : null`);
+      // the demo keyboard's matrix follows real key presses: holding Q should light up its key
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' })); 1`);
+      await wait(400);
+      report.heldKeyLit = await js(`[...document.querySelectorAll('#kmBoard .key.pressed')].map((e) => e.innerText)`);
+      await js(`window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' })); 1`);
+      await wait(300);
+      report.releasedKeyLit = await js(`document.querySelectorAll('#kmBoard .key.pressed').length`);
     }
+    report.source = await js(`App.state.source || null`);
+    report.matrix = await js(`App.state.def ? App.state.def.rows + 'x' + App.state.def.cols : null`);
+    report.gridNote = await js(`document.querySelector('#gridNote').classList.contains('hidden') ? null : document.querySelector('#gridNoteText').textContent`);
+    report.viaList = await js(`window.localKeymap.viaInfo()`);
     report.devicesOffered = lastDeviceList;
     report.debug = debug;
     report.granted = await js(`navigator.hid.getDevices().then((ds) => ds.map((d) => d.productName + ' ' + d.vendorId.toString(16) + ':' + d.productId.toString(16) + ' ' + d.collections.map((c) => c.usagePage.toString(16) + '/' + c.usage.toString(16)).join(',')))`);
