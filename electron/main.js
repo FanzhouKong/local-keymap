@@ -272,6 +272,13 @@ async function runSmoke() {
         try { const r = await d.detectMatrix(App.state.layers); return JSON.stringify(r) + ' in ' + Math.round(performance.now() - t) + ' ms'; }
         catch (e) { return 'error: ' + e.message; }
       })()`);
+      // the keymap as read (already in memory, nothing more is sent): rows of hex keycodes per layer
+      report.keymapRead = await js(`(() => {
+        const s = App.state;
+        if (!s.keymap || !s.def) return null;
+        const h = (n) => n.toString(16).padStart(4, '0');
+        return s.keymap.slice(0, 2).map((l) => Array.from({ length: s.def.rows }, (_, r) => Array.from(l.slice(r * s.def.cols, (r + 1) * s.def.cols), h).join(' ')));
+      })()`);
     } else {
       // demo: built-in layout; grid: no layout anywhere (size worked out); via: pretend to be a
       // keyboard from VIA's list (LK_SMOKE_VIA=vid:pid); vial: serve LK_SMOKE_VIAL (an .xz layout)
@@ -282,6 +289,8 @@ async function runSmoke() {
         opts = `{ definition: false, vendorId: ${vid}, productId: ${pid}, productName: 'Pretend VIA keyboard' }`;
       }
       if (SMOKE_MODE === 'vial') opts = `{ vialXz: new Uint8Array(${JSON.stringify([...fs.readFileSync(process.env.LK_SMOKE_VIAL)])}), productName: 'Pretend Vial keyboard' }`;
+      // arrange the generic layout afresh rather than reuse one kept from an earlier run
+      if (SMOKE_MODE === 'grid') await js(`['generic', 'view', 'opts', 'def'].forEach((w) => localStorage.removeItem('lk.' + w + '.4c4b:0060')); 1`);
       await js(`App.attach(MockVia.create(${opts})).then(() => 1)`);
       await wait(1500);
       report.encoders = await js(`App.state.enc ? JSON.stringify(App.state.enc[0]) : null`);
@@ -301,6 +310,19 @@ async function runSmoke() {
         await bsClick('Full');
         await wait(400);
         report.backspaceFull = await bsState();
+      }
+      if (SMOKE_MODE === 'grid') {
+        // no layout anywhere: a generic layout arranged from the keymap, and the switch to the grid and back
+        const view = () => js(`({ source: App.state.source, kind: App.state.sourceKind, keys: document.querySelectorAll('#kmBoard .key').length, button: document.querySelector('#btnGeneric').innerText, opts: JSON.stringify(App.state.opts) })`);
+        report.generic = await view();
+        await shot('smoke-generic.png');
+        await js(`document.querySelector('#btnGeneric').click(); 1`);
+        await wait(1500);
+        report.genericToGrid = await view();
+        await shot('smoke-grid-matrix.png');
+        await js(`document.querySelector('#btnGeneric').click(); 1`);
+        await wait(1500);
+        report.gridToGeneric = await view();
       }
     }
     report.panel = await js(`document.querySelector('#devPanel').classList.contains('hidden') ? null : document.querySelector('#devPanel').innerText.replace(/\\n+/g, ' | ')`);

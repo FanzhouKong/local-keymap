@@ -40,13 +40,14 @@ First-run notes:
    1. a VIA definition you added yourself (the **Definition** button, or the definitions folder), if any;
    2. the layout **stored in the keyboard**: Vial keyboards carry their own;
    3. **VIA's keyboard list**: the definitions of the 2,000+ keyboards VIA supports ship inside the app, matched by USB ID;
-   4. otherwise a **matrix grid**: the app reads the matrix size from the keyboard and shows every key position in matrix order, labelled with what it does now. Hold a key on the keyboard and it lights up in the grid. If the size can't be worked out, or looks wrong, type the rows and columns in.
+   4. a **generic 65% (or 60%) layout**: for a keyboard none of the above knows, the app reads the matrix size and keymap, and lays the keys out as a standard 65% board, going by what each key does now (Q goes where Q goes; a Home key goes in the right-hand column). It finds a split backspace (even when its second half is wired in another matrix row), a split left shift, and the bottom row's mods. The arrangement is kept, so remapping keys later doesn't move them. On VIA's own 65% keyboards (their real wiring, a typical keymap) it places every key right on 4 out of 5; hold a key on the keyboard to see it light up, and click **Show as grid** if one is in the wrong place. Keys that fit nowhere get a row under the board;
+   5. otherwise a **matrix grid**: the app reads the matrix size from the keyboard and shows every key position in matrix order, labelled with what it does now. Hold a key on the keyboard and it lights up in the grid. If the size can't be worked out, or looks wrong, type the rows and columns in.
 3. Click a key, then click what it should become. You can also:
    - type anything into **Any keycode**, for example `LT(1, KC_SPC)`, `LCTL_T(KC_ESC)`, `LCTL(KC_C)`, `MO(2)` or `0x7C16`;
    - use **Assign by pressing a key** and type on your keyboard. Each key press assigns and moves to the next key.
 4. Use **Save backup** before big changes. **Restore** writes only the keys that differ.
 
-The panel above the layout holds the keyboard's settings: **Backspace** (full or split, when the layout has that option) and **Check polling rate**.
+The panel above the layout holds the keyboard's settings: **Backspace** (full or split, when the layout has that option) and **Check polling rate**. On a generic layout, the backspace and shift switches only change what's shown and are remembered in the app; nothing is written to the keyboard.
 
 ## Check the polling rate
 
@@ -86,7 +87,7 @@ npm run dist
 Other commands:
 
 - `npm run defs` refreshes the packed VIA keyboard list from [the-via/keyboards](https://github.com/the-via/keyboards).
-- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware), Vial layout reading, split backspace recognition and the polling rate estimate.
+- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware), Vial layout reading, split backspace recognition, the polling rate estimate, and the generic 65% layout (against VIA's 65% keyboards).
 
 Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux versions and attach them to a release (`.github/workflows/build.yml`).
 
@@ -101,6 +102,7 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 | `app/` | The interface (plain HTML/CSS/JS, Material Design 3) |
 | `app/js/via.js` | VIA raw-HID protocol over WebHID, Vial layout and knobs, matrix-size detection |
 | `app/js/polling.js` | Estimates the polling rate from key press times |
+| `app/js/generic.js` | Lays out a keyboard without a layout as a standard 65% / 60% board, from its keymap |
 | `app/js/xz.js` | Small .xz decompressor for the layouts Vial keyboards store |
 | `app/js/venom.js` | Geonworks Venom HE protocol, Venom 60 HE layout, polling rate |
 | `app/js/keycodes.js` | Keycode tables for VIA protocols 9–13 (old and new QMK numbering) |
@@ -116,7 +118,8 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 - Lighting menus and custom VIA menus aren't included.
 - Other keyboards with their own non-VIA software can't be remapped here, because they speak different protocols. The key tester still works with them.
 - Vial-only features (tap dance, combos, key overrides, QMK settings) stay in Vial. Keymaps, layout options and knobs work here.
-- The packed VIA keyboard list is a snapshot from the release date. Newer keyboards still work through the matrix grid, or with their definition file.
+- The packed VIA keyboard list is a snapshot from the release date. Newer keyboards still work through the generic layout or the matrix grid, or with their definition file.
+- The generic layout covers ANSI 60% and 65% boards. ISO and JIS extra keys land in the row under the board; other sizes (75%, TKL, full size) use the matrix grid.
 
 ## Credits
 

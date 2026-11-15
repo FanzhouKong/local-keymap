@@ -298,6 +298,7 @@ main { max-width: 1440px; padding: 8px 24px 40px 8px; }
 .grid-note > span { flex: 1 1 320px; }
 .grid-note-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; --field-bg: var(--md-secondary-container); }
 .grid-note .field.small input { width: 80px; }
+.grid-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .grid-note.warn { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
 .grid-note.warn .grid-note-actions { --field-bg: var(--md-tertiary-container); }
 

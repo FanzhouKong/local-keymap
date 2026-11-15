@@ -139,9 +139,12 @@
               <svg class="icon"><use href="#i-grid"/></svg>
               <span id="gridNoteText" class="t-body-medium"></span>
               <div class="grid-note-actions">
-                <label class="field small"><span class="field-label">Rows</span><input id="gridRows2" type="number" min="1" max="64"></label>
-                <label class="field small"><span class="field-label">Columns</span><input id="gridCols2" type="number" min="1" max="32"></label>
-                <button id="btnGrid2" class="btn tonal">Apply</button>
+                <span id="gridFields" class="grid-fields">
+                  <label class="field small"><span class="field-label">Rows</span><input id="gridRows2" type="number" min="1" max="64"></label>
+                  <label class="field small"><span class="field-label">Columns</span><input id="gridCols2" type="number" min="1" max="32"></label>
+                  <button id="btnGrid2" class="btn tonal">Apply</button>
+                </span>
+                <button id="btnGeneric" class="btn tonal hidden" title="Switch between a standard layout arranged from the keymap and the plain matrix grid"><svg class="icon"><use href="#i-keyboard"/></svg><span>Show as 65%</span></button>
                 <button id="btnLoadDef2" class="btn text"><svg class="icon"><use href="#i-file"/></svg>Definition file</button>
               </div>
             </div>
@@ -209,6 +212,7 @@
   <script src="js/venom.js"></script>
   <script src="js/mock.js"></script>
   <script src="js/polling.js"></script>
+  <script src="js/generic.js"></script>
   <script src="js/main.js"></script>
   <script src="js/tester.js"></script>
 </body>

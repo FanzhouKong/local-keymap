@@ -5,7 +5,9 @@
  *  3. reading Vial layouts and knobs from simulated Vial firmware (real vial.json files),
  *  4. that every definition in the VIA bundle parses and its split backspace option is recognized
  *     (when generated/ has been built),
- *  5. the polling rate estimate from key press times, and the USB descriptor arithmetic. */
+ *  5. the polling rate estimate from key press times, and the USB descriptor arithmetic,
+ *  6. the generic 65% / 60% layout: hand-made cases, the demo keyboard against its own definition,
+ *     and (with generated/) VIA's ANSI 65% keyboards, their real wiring with typical keymaps. */
 'use strict';
 
 const fs = require('fs');
@@ -17,13 +19,13 @@ const zlib = require('zlib');
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(__dirname, 'fixtures');
 
-const ctx = { console, setTimeout, clearTimeout, TextDecoder, EventTarget, Event };
+const ctx = { console, setTimeout, clearTimeout, TextDecoder, EventTarget, Event, addEventListener() {} };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js']) {
+for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js', 'generic.js', 'mock.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'app', 'js', f), 'utf8'), ctx, { filename: f });
 }
-const { ViaDevice, KLE, XZ, PollingRate } = ctx;
+const { ViaDevice, KLE, XZ, PollingRate, GenericLayout, MockVia } = ctx;
 const usb = require(path.join(ROOT, 'electron', 'usb-polling.js'));
 
 let failures = 0;
@@ -299,12 +301,137 @@ function pollingTests() {
   console.log(`polling: ${n} simulated key press sessions, USB descriptor arithmetic`);
 }
 
+// ------------------------------------------------------------------ 6) generic layout
+const placedKeys = (json, choice = 1) => {
+  // every key of a definition with each layout option set to `choice` (or its only alternative)
+  const p = KLE.parse(json.layouts.keymap);
+  const out = p.keys.filter((k) => k.ei === undefined);
+  for (const o of Object.values(p.optionKeys)) out.push(...(o[choice] || o[0] || []));
+  return out;
+};
+
+async function genericTests() {
+  // a 65% wired like the Sessantacinque: the split backspace's right half in the Enter row (2,13),
+  // a split left shift (3,1, KC_TRNS), one right mod; with Ctrl on Caps Lock, Caps bottom left and
+  // Backspace above Enter. Layers 2-3 aren't in the firmware's keymap, so they are KC_TRNS everywhere.
+  const L0 = [
+    '7c16 1e 1f 20 21 22 23 24 25 26 27 2d 2e 31 4a', '2b 14 1a 08 15 17 1c 18 0c 12 13 2f 30 2a 4b',
+    'e0 04 16 07 09 0a 0b 0d 0e 0f 33 34 28 2a 4e', 'e1 01 1d 1b 06 19 05 11 10 36 37 38 e5 52 4d',
+    '39 e3 e2 0 0 0 2c 0 0 0 5221 0 50 51 4f'].join(' ').split(' ').map((h) => parseInt(h, 16));
+  const layer0 = Uint16Array.from(L0);
+  const layers = [layer0, layer0.map((v) => (v ? 1 : 0)), new Uint16Array(75).fill(1), new Uint16Array(75).fill(1)];
+  const r = GenericLayout.fit({ rows: 5, cols: 15, layers, protocol: 12 });
+  const want = { '0,13': 'bs', '2,13': 'bs2', '3,1': 'iso', '0,14': 'r0', '1,13': 'bsls', '2,0': 'caps', '4,0': 'lctl', '4,10': 'rb', '3,13': 'up', '4,6': 'spc' };
+  const wrong = Object.entries(want).filter(([rc, id]) => r.placed.get(rc) !== id);
+  if (!r.ok || r.size !== '65%' || r.extras || r.keys !== 68 || wrong.length) fail(`generic 65%: ok=${r.ok} ${r.size} extras=${r.extras} keys=${r.keys} wrong=${JSON.stringify(wrong)}`);
+  if (JSON.stringify(r.json.layouts.labels) !== '["Split Backspace","Split Left Shift"]' || JSON.stringify(r.json.generic.defaults) !== '[1,0]') fail(`generic 65%: options ${JSON.stringify(r.json.layouts.labels)} ${JSON.stringify(r.json.generic.defaults)}`);
+  if (!KLE.backspaceOption(r.json.layouts.labels)) fail('generic 65%: no split backspace switch');
+  const keys = placedKeys(r.json);
+  if (new Set(keys.map((k) => `${k.row},${k.col}`)).size !== 68 || keys.length !== 68) fail(`generic 65%: ${keys.length} keys shown with every option on`);
+  const bottom = placedKeys(r.json).filter((k) => k.y === 4).sort((a, b) => a.x - b.x).map((k) => `${k.x}+${k.w}`).join(' ');
+  if (bottom !== '0+1.5 1.5+1 2.5+1.5 4+7 11+1.5 13+1 14+1 15+1') fail(`generic 65%: bottom row ${bottom}`);
+
+  // the demo keyboard (a 60%) without its definition comes out exactly as its definition says
+  const dev = await connect(MockVia.create({ definition: false }));
+  const demo = GenericLayout.fit({ rows: 5, cols: 15, layers: await dev.readKeymap(4, 5, 15), protocol: 12 });
+  if (!demo.ok || demo.size !== '60%' || demo.extras) fail(`generic demo: ok=${demo.ok} ${demo.size} extras=${demo.extras}`);
+  for (const choice of [0, 1]) {
+    const pos = (ks) => ks.map((k) => `${k.row},${k.col}@${k.x},${k.y}w${k.w}`).sort().join(' ');
+    const a = pos(placedKeys(MockVia.DEFINITION, choice)), b = pos(placedKeys(demo.json, choice));
+    if (a !== b) fail(`generic demo (options ${choice}): differs from its definition\n    def ${a}\n    got ${b}`);
+  }
+
+  // not a 65% or 60% (no row of digits, a function row...): the grid stays
+  const tkl = new Uint16Array(6 * 17);
+  for (let c = 0; c < 17; c++) { tkl[c] = c < 13 ? 0x3a + c : 0x46; tkl[17 + c] = c < 10 ? 0x1e + c : 0x2d; }
+  for (let i = 34; i < tkl.length; i++) tkl[i] = 0x04 + (i % 26);
+  if (GenericLayout.fit({ rows: 6, cols: 17, layers: [tkl], protocol: 12 }).ok) fail('generic: a TKL-shaped keymap was taken for a 65%');
+  console.log('generic: hand-made 65% and the demo 60% laid out right');
+
+  // VIA's ANSI 65% keyboards: their real wiring, a typical keymap; is every key in its row and order?
+  const file = path.join(ROOT, 'generated', 'via-definitions.json.br');
+  if (!fs.existsSync(file)) { console.log('generic vs VIA: bundle not built, skipped'); return; }
+  const b = JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(file)));
+  let s = 777;
+  const rand = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
+  const oneOf = (a) => a[Math.floor(rand() * a.length)];
+  const L = (t) => t.split('').map((ch) => ({ ';': 0x33, "'": 0x34, ',': 0x36, '.': 0x37, '/': 0x38, '[': 0x2f, ']': 0x30 }[ch] || 0x04 + ch.charCodeAt(0) - 65));
+  const ALPHA = { qwerty: [L('QWERTYUIOP[]'), L("ASDFGHJKL;'"), L('ZXCVBNM,./')], colemak: [L('QWFPGJLUY;[]'), L("ARSTDHNEIO'"), L('ZXCVBKM,./')] };
+  const NAV = [0x4c, 0x4a, 0x4b, 0x4e, 0x4d, 0x49, 0x35, 0x5221, 0xa8];
+  const tally = { qwerty: [0, 0], colemak: [0, 0] };
+  let splitBoards = 0, splitFound = 0;
+  for (const d of Object.values(b.definitions)) {
+    let p;
+    try { p = KLE.parse(d.layouts.keymap); } catch (_) { continue; }
+    const R = d.matrix.rows, C = d.matrix.cols, labels = d.layouts.labels || [];
+    const inM = (k) => k.row >= 0 && k.row < R && k.col < C;
+    const all = [...p.keys, ...Object.values(p.optionKeys).flatMap((o) => Object.values(o).flat())].filter(inM);
+    const bs = KLE.backspaceOption(labels);
+    const ansi = (g) => {
+      const l = labels[g];
+      if (bs && g === bs.g) return (bs.choices.find((c) => c.name === 'Split') || bs.choices[1]).value;
+      if (Array.isArray(l)) return Math.max(0, l.slice(1).findIndex((n) => /ansi/i.test(n)));
+      return typeof l === 'string' && /ansi/i.test(l) && !/iso/i.test(l) ? 1 : 0;
+    };
+    const view = p.keys.filter(inM);
+    for (const [g, o] of Object.entries(p.optionKeys)) view.push(...(o[ansi(+g)] || o[0] || []).filter(inM));
+    const minX = Math.min(...view.map((k) => k.x)), width = Math.max(...view.map((k) => k.x + k.w)) - minX;
+    const ys = [...new Set(view.map((k) => Math.round(k.y)))].sort((a, c) => a - c);
+    if (view.some((k) => k.r || k.h > 1) || ys.length !== 5 || width < 15.5 || width > 16.6 || view.length < 64 || view.length > 74) continue;
+    const rowOf = (k) => ys.indexOf(Math.round(k.y));
+    const viewPos = new Set(view.map((k) => `${k.row},${k.col}`));
+    for (const style of ['qwerty', 'colemak']) {
+      // a keymap like a VIA default (or a Colemak user's): what each key is, by where it sits
+      const A = ALPHA[style], code = new Map(), used = new Set();
+      const order = [...view, ...all.filter((k) => !view.includes(k) && !viewPos.has(`${k.row},${k.col}`))];
+      for (const k of order) {
+        const pr = rowOf(k), x = k.x - minX, rk = `${k.row},${k.col}`;
+        if (pr < 0 || code.has(rk)) continue;
+        const row = view.filter((q) => rowOf(q) === pr);
+        const space = row.reduce((m, q) => (q.w > m.w ? q : m), row[0]);
+        let v = [
+          () => (x < 1 ? 0x29 : x < 13 ? [0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e][Math.round(x) - 1] : x < 15 ? 0x2a : oneOf(NAV)),
+          () => (x < 1.5 ? 0x2b : x < 13.5 ? A[0][Math.round(x - 1.5)] : x < 15 ? 0x31 : oneOf(NAV)),
+          () => (x < 1.75 ? 0x39 : x < 12.75 ? A[1][Math.round(x - 1.75)] : x < 15 ? 0x28 : oneOf(NAV)),
+          () => (x < 1.25 ? 0xe1 : x < 2.25 ? 0x64 : x < 12.25 ? A[2][Math.round(x - 2.25)] : x < 14 ? 0xe5 : x < 15 ? 0x52 : oneOf(NAV)),
+          () => (k.w >= 2 ? 0x2c : k.x < space.x ? [0xe0, 0xe3, 0xe2][Math.min(2, row.filter((q) => q.x < k.x).length)]
+            : x >= 13 ? [0x50, 0x51, 0x4f][Math.min(2, Math.round(x - 13))] : oneOf([0xe6, 0xe7, 0xe4, 0x65, 0x5221])),
+        ][pr]();
+        if (!view.includes(k) && used.has(v) && v !== 0x2a && !(v >= 0xe0 && v <= 0xe7) && v !== 0x2c) v = 0x32; // an alternate key never repeats a letter
+        if (view.includes(k)) used.add(v);
+        code.set(rk, v || 1);
+      }
+      const layer0 = new Uint16Array(R * C);
+      for (const k of all) layer0[k.row * C + k.col] = code.get(`${k.row},${k.col}`) || 1;
+      const g = GenericLayout.fit({ rows: R, cols: C, layers: [layer0, layer0.map((v) => (v ? 1 : 0))], protocol: 12 });
+      const where = new Map(placedKeys(g.json).map((k) => [`${k.row},${k.col}`, k]));
+      let bad = 0;
+      ys.forEach((_, pr) => {
+        const ks = view.filter((k) => rowOf(k) === pr).sort((a, c) => a.x - c.x).map((k) => where.get(`${k.row},${k.col}`));
+        ks.forEach((k, i) => {
+          if (!k || Math.round(k.y) !== pr) bad++;
+          else if (i && ks[i - 1] && ks[i - 1].x >= k.x && !['bs', 'bs2'].includes(g.placed.get(`${k.row},${k.col}`))) bad++;
+        });
+      });
+      tally[style][0]++;
+      if (!bad && g.ok) tally[style][1]++;
+      if (bad && g.ok && style === 'qwerty' && /^(Kohaku Hotswap|KBD67 MkII|NK65|Tofu65)/.test(d.name)) fail(`generic vs VIA: ${d.name} laid out wrong`);
+      if (style === 'qwerty' && bs) { splitBoards++; if (g.json.layouts.labels.includes('Split Backspace')) splitFound++; }
+    }
+  }
+  const pct = (t) => Math.round((100 * t[1]) / t[0]);
+  if (tally.qwerty[0] < 250 || pct(tally.qwerty) < 78 || pct(tally.colemak) < 72) fail(`generic vs VIA: ${JSON.stringify(tally)}`);
+  if (splitFound < splitBoards * 0.95) fail(`generic vs VIA: split backspace found on ${splitFound} of ${splitBoards}`);
+  console.log(`generic vs VIA: ${tally.qwerty[0]} ANSI 65% keyboards, every key placed right on ${pct(tally.qwerty)}% (QWERTY) / ${pct(tally.colemak)}% (Colemak); split backspace found on ${splitFound} of ${splitBoards}`);
+}
+
 (async () => {
   xzTests();
   await detectionTests();
   await vialTests();
   bundleTests();
   pollingTests();
+  await genericTests();
   console.log(failures ? `\n${failures} failure(s)` : '\nall tests passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

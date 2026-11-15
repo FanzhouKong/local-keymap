@@ -25,7 +25,11 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* storage unavailable */ } },
     del(k) { try { localStorage.removeItem(k); } catch (_) { /* storage unavailable */ } },
   };
-  const defKey = (vid, pid) => `lk.def.${vid.toString(16).padStart(4, '0')}:${pid.toString(16).padStart(4, '0')}`;
+  const idKey = (what, vid, pid) => `lk.${what}.${vid.toString(16).padStart(4, '0')}:${pid.toString(16).padStart(4, '0')}`;
+  const defKey = (vid, pid) => idKey('def', vid, pid); // a definition file loaded (or grid size set) by hand
+  const genericKey = (vid, pid) => idKey('generic', vid, pid); // the generic layout, arranged once
+  const viewKey = (vid, pid) => idKey('view', vid, pid); // 'grid' when the generic layout was turned down
+  const optsKey = (vid, pid) => idKey('opts', vid, pid); // the generic layout's split backspace etc.
   const emit = (name) => document.dispatchEvent(new CustomEvent(name));
   function download(name, text) {
     const a = document.createElement('a');
@@ -70,6 +74,7 @@
     return {
       raw: json,
       grid: json.grid === true,
+      generic: json.generic && typeof json.generic === 'object' ? json.generic : null,
       name: typeof json.name === 'string' ? json.name : 'Keyboard',
       vendorId: parseInt(json.vendorId, 16),
       productId: parseInt(json.productId, 16),
@@ -90,11 +95,34 @@
     };
   }
 
+  /** A standard 65% (or 60%) layout for a keyboard that doesn't share its own, arranged from what
+   * its keys do (see generic.js). Arranged once and kept, so remapping keys later doesn't move
+   * them around. -> prepared definition, or null when the keyboard doesn't look like one. */
+  async function genericDefinition(dev, rows, cols) {
+    const key = genericKey(dev.vendorId, dev.productId);
+    try {
+      const kept = JSON.parse(store.get(key) || 'null');
+      if (kept && kept.generic && kept.generic.version === GenericLayout.VERSION && kept.matrix.rows === rows && kept.matrix.cols === cols) {
+        return prepareDefinition(kept);
+      }
+    } catch (e) { console.warn(e); }
+    setStatus('Arranging the keys…');
+    const layers = await dev.readKeymap(S.layers, rows, cols);
+    const fit = GenericLayout.fit({
+      rows, cols, layers, protocol: S.protocol, name: dev.name, vendorId: hex4(dev.vendorId), productId: hex4(dev.productId),
+    });
+    if (!fit.ok) return null;
+    store.set(key, JSON.stringify(fit.json));
+    return prepareDefinition(fit.json);
+  }
+
   /** Finds the keyboard's layout without asking for a file. In order:
    *  1. a file in the definitions folder   2. a file loaded earlier in the app
    *  3. the layout stored in the keyboard (Vial)   4. a built-in layout (Venom, demo)
-   *  5. VIA's keyboard list, shipped with the app   6. a matrix grid, size read from the keyboard */
+   *  5. VIA's keyboard list, shipped with the app   6. a generic 65% / 60% layout, arranged from
+   *  the keymap   7. a matrix grid, size read from the keyboard */
   async function findDefinition(dev, hid) {
+    S.genericAvailable = false;
     const vid = dev.vendorId, pid = dev.productId;
     const matches = (d) => parseInt(d.vendorId, 16) === vid && parseInt(d.productId, 16) === pid;
     if (desktop) {
@@ -131,6 +159,15 @@
       try {
         setStatus('Working out the key matrix…');
         const { rows, cols, sure } = await dev.detectMatrix(S.layers);
+        if (sure) {
+          try {
+            const generic = await genericDefinition(dev, rows, cols);
+            S.genericAvailable = generic ? generic.generic.size : false;
+            if (generic && store.get(viewKey(vid, pid)) !== 'grid') {
+              return { def: generic, source: `generic ${generic.generic.size} layout, arranged from its keymap`, kind: 'generic' };
+            }
+          } catch (e) { console.warn('Generic layout:', e); }
+        }
         const def = prepareDefinition(gridJson(rows, cols));
         def.gridSure = sure;
         return { def, source: `matrix grid, ${rows} × ${cols} found automatically`, kind: 'grid' };
@@ -355,7 +392,13 @@
       S.kc = new Keycodes(S.protocol, def.customKeycodes, { vialProtocol: S.dev.vialProtocol });
       S.layer = 0; S.sel = null;
       S.opts = def.labels.map(() => 0);
-      if (def.labels.length) {
+      if (kind === 'generic') {
+        // the generic layout's options are only for display, so they stay in the app
+        let kept = null;
+        try { kept = JSON.parse(store.get(optsKey(S.dev.vendorId, S.dev.productId)) || 'null'); } catch (_) { /* none */ }
+        const start = Array.isArray(kept) && kept.length === def.labels.length ? kept : def.generic.defaults || [];
+        S.opts = def.labels.map((_, i) => (start[i] ? 1 : 0));
+      } else if (def.labels.length) {
         try { S.opts = unpackOptions(await S.dev.getLayoutOptions(), def.labels); } catch (_) { /* firmware without layout options */ }
       }
       setStatus('Reading keymap… 0%');
@@ -439,15 +482,38 @@
   }
 
   function renderGridNote() {
+    const generic = S.sourceKind === 'generic';
     const grid = !!(S.def && S.def.grid);
-    show('#gridNote', grid);
-    if (!grid) return;
+    show('#gridNote', grid || generic);
+    if (!grid && !generic) return;
+    show('#gridFields', grid);
+    const toggle = $('#btnGeneric');
+    show('#btnGeneric', generic || S.genericAvailable);
+    $('#gridNote use').setAttribute('href', generic ? '#i-keyboard' : '#i-grid');
+    if (generic) {
+      const g = S.def.generic;
+      toggle.querySelector('span').textContent = 'Show as grid';
+      $('#gridNoteText').textContent = `This keyboard isn't in VIA's list and doesn't carry its own layout, so Local Keymap laid it out as a standard ${g.size} board, going by what each key does. Hold a key on the keyboard and it lights up here; if one lights up in the wrong place, switch to the grid or load the keyboard's definition file.`
+        + (g.extras ? ` ${g.extras === 1 ? 'One key that didn’t fit is' : `${g.extras} keys that didn’t fit are`} in the row under the board.` : '');
+      $('#gridNote').classList.remove('warn');
+      return;
+    }
+    toggle.querySelector('span').textContent = `Show as ${S.genericAvailable || '65%'}`;
     const auto = S.sourceKind === 'grid';
     $('#gridNoteText').textContent = `This keyboard isn't in VIA's list and doesn't carry its own layout, so its keys are shown in matrix order: ${S.def.rows} rows × ${S.def.cols} columns${auto ? ', read from the keyboard' : ''}. Each key shows what it does now; hold a key on the keyboard and it lights up here.`
       + (auto && S.def.gridSure === false ? ' The keymap has too little variety to double-check this size; if the labels look shifted, correct the rows and columns.' : '');
     $('#gridNote').classList.toggle('warn', auto && S.def.gridSure === false);
     $('#gridRows2').value = S.def.rows;
     $('#gridCols2').value = S.def.cols;
+  }
+
+  /** Switches between the generic layout and the plain matrix grid (remembered per keyboard). */
+  async function toggleGeneric() {
+    if (!S.dev || S.busy) return;
+    const k = viewKey(S.dev.vendorId, S.dev.productId);
+    if (S.sourceKind === 'generic') store.set(k, 'grid'); else store.del(k);
+    if (S.sourceKind === 'saved') store.del(defKey(S.dev.vendorId, S.dev.productId)); // a hand-set grid size
+    await loadAutoDefinition(S.dev.hid);
   }
 
   // ------------------------------------------------------------------ pressed keys light up in the editor
@@ -608,6 +674,7 @@
     renderKeymap();
     renderDevicePanel();
     emit('lk:definition');
+    if (S.sourceKind === 'generic') { store.set(optsKey(S.dev.vendorId, S.dev.productId), JSON.stringify(S.opts)); return; }
     try { await S.dev.setLayoutOptions(packOptions(S.opts, S.def.labels)); } catch (_) { /* display-only on this firmware */ }
   }
 
@@ -970,6 +1037,7 @@
     $('#btnGrid').addEventListener('click', () => useGrid($('#gridRows'), $('#gridCols')));
     $('#btnGrid2').addEventListener('click', () => useGrid($('#gridRows2'), $('#gridCols2')));
     $('#btnLoadDef2').addEventListener('click', () => $('#fileDef').click());
+    $('#btnGeneric').addEventListener('click', toggleGeneric);
     $('#btnBackup').addEventListener('click', backup);
     $('#btnRestore').addEventListener('click', () => $('#fileRestore').click());
     readFile($('#fileDef'), loadDefinitionText);
