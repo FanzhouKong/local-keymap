@@ -10,6 +10,7 @@ const { app, BrowserWindow, ipcMain, Menu, shell, nativeTheme } = require('elect
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
+const { usbPollingRates } = require('./usb-polling');
 
 const ROOT = path.join(__dirname, '..');
 const SMOKE = process.argv.find((a) => a.startsWith('--smoke'));
@@ -118,6 +119,7 @@ ipcMain.handle('lk:via-info', (e) => {
   const b = fromApp(e) && viaDefinitions();
   return b ? { count: b.count, commit: b.commit, generatedAt: b.generatedAt } : null;
 });
+ipcMain.handle('lk:usb-polling-rates', (e) => (fromApp(e) ? usbPollingRates() : { supported: false, keyboards: [] }));
 ipcMain.handle('lk:open-definitions-folder', async (e) => {
   if (!fromApp(e)) return '';
   const dir = definitionDirs()[0].dir;
@@ -249,6 +251,18 @@ async function runSmoke() {
       }
       if (!report.autoConnected) await js(`document.querySelector('#btnConnect').click(); 1`, true);
       await wait(8000);
+      report.rttProbe = await js(`(async () => {
+        const d = App.state.dev;
+        if (!d) return null;
+        const q = d.kind === 'venom' ? [222] : [1];
+        const t = [];
+        for (let i = 0; i < 400; i++) { const t0 = performance.now(); await d.send(q); t.push(performance.now() - t0); }
+        const s = [...t].sort((a, b) => a - b), p = (x) => s[Math.floor(x * (s.length - 1))].toFixed(3);
+        const hist = {};
+        t.forEach((v) => { const b = (Math.round(v * 8) / 8).toFixed(3); hist[b] = (hist[b] || 0) + 1; });
+        const top = Object.entries(hist).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + 'ms:' + v).join(' ');
+        return { min: p(0), p10: p(0.1), median: p(0.5), p90: p(0.9), max: p(1), top, info: d.info ? { usbSpeed: d.info.usbSpeed, force1k: d.info.force1k, fw: d.info.firmware } : null };
+      })()`);
       report.page2 = await js(`({ need: !document.querySelector('#kmNeedDef').classList.contains('hidden'), editor: !document.querySelector('#kmEditor').classList.contains('hidden'), vial: App.state.dev && App.state.dev.vialProtocol, protocol: App.state.protocol, layers: App.state.layers })`);
       // read-only: would the matrix size have been found without any layout? (VIA keyboards)
       report.detectMatrix = await js(`(async () => {
@@ -278,6 +292,24 @@ async function runSmoke() {
       await js(`window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' })); 1`);
       await wait(300);
       report.releasedKeyLit = await js(`document.querySelectorAll('#kmBoard .key.pressed').length`);
+      // the keyboard panel's Backspace control: Split, then back to Full
+      const bsClick = (name) => js(`(() => { const b = [...document.querySelectorAll('#devPanel .segmented button')].find((x) => x.textContent === '${name}'); if (!b) return null; b.click(); return 1; })()`);
+      const bsState = () => js(`({ keys: App.state.visible.length, opts: JSON.stringify(App.state.opts), active: [...document.querySelectorAll('#devPanel .segmented button.active')].map((b) => b.textContent).join(',') })`);
+      if (await bsClick('Split')) {
+        await wait(400);
+        report.backspaceSplit = await bsState();
+        await bsClick('Full');
+        await wait(400);
+        report.backspaceFull = await bsState();
+      }
+    }
+    report.panel = await js(`document.querySelector('#devPanel').classList.contains('hidden') ? null : document.querySelector('#devPanel').innerText.replace(/\\n+/g, ' | ')`);
+    report.toolbarOptions = await js(`document.querySelector('#layoutOpts').innerText.replace(/\\n+/g, ' | ')`);
+    if (SMOKE_MODE === 'polling' || process.env.LK_SMOKE_POLLING) {
+      // the keyboard panel's Check button opens the tester's polling rate view
+      await js(`(() => { const b = [...document.querySelectorAll('#devPanel .btn.text')].pop(); if (b) b.click(); else window.Tester.openPolling(); return 1; })()`);
+      await wait(4000);
+      report.polling = await js(`({ tab: App.isTabActive('tester'), usb: document.querySelector('#pollUsb').innerText.replace(/\\n+/g, ' | '), value: document.querySelector('#pollValue').textContent })`);
     }
     report.source = await js(`App.state.source || null`);
     report.matrix = await js(`App.state.def ? App.state.def.rows + 'x' + App.state.def.cols : null`);

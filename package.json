@@ -1,7 +1,7 @@
 {
   "name": "local-keymap",
   "productName": "Local Keymap",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Offline key tester and keymap editor for VIA, Vial and Geonworks Venom HE keyboards. No definition files needed.",
   "private": true,
   "license": "GPL-3.0-only",

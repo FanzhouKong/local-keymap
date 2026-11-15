@@ -164,13 +164,21 @@
     setStatus(`${S.dev.name} · VIA protocol ${S.protocol}${vial} · ${S.layers} layers`);
   }
 
-  // ------------------------------------------------------------------ Venom device panel (profile + polling rate)
+  // ------------------------------------------------------------------ keyboard panel: backspace, polling rate (+ Venom profile)
+  /** The layout option that switches between a full and a split backspace, in whatever words the
+   * definition uses ("Split Backspace", "2U Backspace", ["Backspace", "Unified", "Split"]...).
+   * -> { g, choices: [{ name, value }] } or null */
+  function backspaceOption(def = S.def) {
+    return def ? KLE.backspaceOption(def.labels) : null;
+  }
+
   function renderDevicePanel() {
     const host = $('#devPanel');
     host.innerHTML = '';
-    const venom = S.dev && S.dev.kind === 'venom';
-    show('#devPanel', venom);
-    if (!venom) return;
+    const on = !!(S.dev && S.def);
+    show('#devPanel', on);
+    if (!on) return;
+    const venom = S.dev.kind === 'venom';
     const i = S.dev.info;
     const icon = (id) => `<svg class="icon s18"><use href="#i-${id}"/></svg>`;
     const group = (iconId, title, choices, current, onPick) => {
@@ -192,14 +200,41 @@
       return g;
     };
 
-    host.appendChild(group('person', 'Profile', [0, 1, 2, 3].map((p) => [p, String(p + 1)]), i.profile, async (p) => {
-      if (S.busy) return;
-      try {
-        await S.dev.setProfile(p);
-        await useDefinition(S.def, S.source, S.sourceKind);
-      } catch (e) { toast('Could not switch profile: ' + e.message, 'error'); }
-    }));
-    host.appendChild(group('speed', 'Polling rate', [[0, '8000 Hz'], [1, '1000 Hz']], i.force1k ? 1 : 0, (v) => setPolling(v === 1)));
+    const checkBtn = () => {
+      const b = document.createElement('button');
+      b.className = 'btn text';
+      b.title = 'Read the polling rate from the keyboard’s USB connection, or measure it from key presses';
+      b.innerHTML = `${icon('speed')}<span>${venom ? 'Check' : 'Check polling rate'}</span>`;
+      b.addEventListener('click', () => { if (window.Tester) window.Tester.openPolling(); });
+      return b;
+    };
+
+    if (venom) {
+      host.appendChild(group('person', 'Profile', [0, 1, 2, 3].map((p) => [p, String(p + 1)]), i.profile, async (p) => {
+        if (S.busy) return;
+        try {
+          await S.dev.setProfile(p);
+          await useDefinition(S.def, S.source, S.sourceKind);
+        } catch (e) { toast('Could not switch profile: ' + e.message, 'error'); }
+      }));
+    }
+    const bs = backspaceOption();
+    if (bs) {
+      const g = group('backspace', 'Backspace', bs.choices.map((c) => [c.value, c.name]), S.opts[bs.g] || 0, (v) => setLayoutOption(bs.g, v));
+      g.title = venom ? 'Changes the keyboard’s own split backspace setting' : 'Shows the keys for a full or a split backspace';
+      host.appendChild(g);
+    }
+    if (venom) {
+      const g = group('speed', 'Polling rate', [[0, '8000 Hz'], [1, '1000 Hz']], i.force1k ? 1 : 0, (v) => setPolling(v === 1));
+      g.appendChild(checkBtn());
+      host.appendChild(g);
+    } else {
+      const g = document.createElement('div');
+      g.className = 'dev-group';
+      g.appendChild(checkBtn());
+      host.appendChild(g);
+      return;
+    }
 
     const now = document.createElement('span');
     now.className = 't-body-medium muted';
@@ -533,7 +568,11 @@
   function renderLayoutOptions() {
     const host = $('#layoutOpts');
     host.innerHTML = '';
+    const bs = backspaceOption();
+    let shown = 0;
     S.def.labels.forEach((label, g) => {
+      if (bs && bs.g === g) return; // lives in the keyboard panel
+      shown++;
       const wrap = document.createElement('label');
       if (Array.isArray(label)) {
         // outlined select with a floating label
@@ -560,13 +599,14 @@
       }
       host.appendChild(wrap);
     });
-    show('#layoutOptsWrap', S.def.labels.length > 0);
+    show('#layoutOptsWrap', shown > 0);
   }
 
   async function setLayoutOption(g, v) {
     S.opts[g] = v;
     S.sel = null;
     renderKeymap();
+    renderDevicePanel();
     emit('lk:definition');
     try { await S.dev.setLayoutOptions(packOptions(S.opts, S.def.labels)); } catch (_) { /* display-only on this firmware */ }
   }

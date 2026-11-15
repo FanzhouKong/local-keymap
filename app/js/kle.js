@@ -120,5 +120,24 @@
     return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => `${r},${c}`));
   }
 
-  window.KLE = { parse, gridKeymap };
+  /** Finds the layout option that switches between a full and a split backspace, in whatever words
+   * the definition uses: "Split Backspace" (on = split), "2U Backspace" / "Full Backspace" /
+   * "Unified Backspace" (on = not split), or a list like ["Backspace", "Unified", "Split"].
+   * labels: definition.layouts.labels -> { g, choices: [{ name, value }] } or null */
+  function backspaceOption(labels) {
+    const BS = /back ?space|bksp/i;
+    for (let g = 0; g < (labels || []).length; g++) {
+      const l = labels[g];
+      if (Array.isArray(l)) {
+        if (BS.test(String(l[0])) && l.length > 2) return { g, choices: l.slice(1).map((name, value) => ({ name: String(name), value })) };
+        continue;
+      }
+      if (typeof l !== 'string' || !BS.test(l)) continue;
+      if (/split/i.test(l) && !/unsplit/i.test(l)) return { g, choices: [{ name: 'Full', value: 0 }, { name: 'Split', value: 1 }] };
+      if (/full|unified|unsplit|2 ?u|long|normal|single/i.test(l)) return { g, choices: [{ name: 'Full', value: 1 }, { name: 'Split', value: 0 }] };
+    }
+    return null;
+  }
+
+  window.KLE = { parse, gridKeymap, backspaceOption };
 })();

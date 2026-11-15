@@ -3,7 +3,9 @@
  *  1. the .xz decoder against vectors made with Python's lzma module (test/fixtures/xz),
  *  2. matrix-size detection against simulated QMK firmware (old and new), many shapes and keymaps,
  *  3. reading Vial layouts and knobs from simulated Vial firmware (real vial.json files),
- *  4. that every definition in the VIA bundle parses (when generated/ has been built). */
+ *  4. that every definition in the VIA bundle parses and its split backspace option is recognized
+ *     (when generated/ has been built),
+ *  5. the polling rate estimate from key press times, and the USB descriptor arithmetic. */
 'use strict';
 
 const fs = require('fs');
@@ -18,10 +20,11 @@ const FIX = path.join(__dirname, 'fixtures');
 const ctx = { console, setTimeout, clearTimeout, TextDecoder, EventTarget, Event };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js']) {
+for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'app', 'js', f), 'utf8'), ctx, { filename: f });
 }
-const { ViaDevice, KLE, XZ } = ctx;
+const { ViaDevice, KLE, XZ, PollingRate } = ctx;
+const usb = require(path.join(ROOT, 'electron', 'usb-polling.js'));
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`  FAIL ${msg}`); };
@@ -221,7 +224,79 @@ function bundleTests() {
     } catch (e) { fail(`via ${id} ${d.name}: ${e.message}`); }
   }
   if (b.count < 1000) fail(`via bundle: only ${b.count} keyboards`);
-  console.log(`via bundle: ${b.count} keyboards, ${keys} keys parsed`);
+
+  // split backspace: every definition that mentions a backspace option on its own gets the control
+  let bs = 0, missed = 0;
+  for (const [id, d] of Object.entries(b.definitions)) {
+    const labels = d.layouts.labels || [];
+    const own = labels.filter((l) => (Array.isArray(l) ? /back ?space/i.test(String(l[0])) : /back ?space/i.test(String(l))));
+    const opt = KLE.backspaceOption(labels);
+    if (opt) {
+      bs++;
+      if (opt.choices.length < 2 || opt.g < 0 || opt.g >= labels.length) fail(`backspace ${id}: bad option ${JSON.stringify(opt)}`);
+      const l = labels[opt.g];
+      if (typeof l === 'string' && /^split/i.test(l) && opt.choices.find((c) => c.name === 'Split').value !== 1) fail(`backspace ${id}: "${l}" upside down`);
+      if (typeof l === 'string' && /^(2u|full|unified)/i.test(l) && opt.choices.find((c) => c.name === 'Split').value !== 0) fail(`backspace ${id}: "${l}" upside down`);
+    } else if (own.length) {
+      missed++;
+    }
+  }
+  if (bs < 800) fail(`backspace: only ${bs} keyboards recognized`);
+  console.log(`via bundle: ${b.count} keyboards, ${keys} keys parsed, split backspace switch on ${bs} (${missed} plain "Backspace" switches left as they are)`);
+}
+
+// ------------------------------------------------------------------ 5) polling rate
+function pollingTests() {
+  let s = 4242;
+  const rnd = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
+  const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+  // a person drumming or slapping keys; each change arrives on the next poll, timestamped with a
+  // little jitter, the odd late event, and the browser's 0.1 ms clock
+  const session = (rate, style) => {
+    const T = 1000 / rate, phase = rnd() * T, times = [];
+    let t = 1000;
+    while (t < 6000) {
+      if (style === 'slap') {
+        const n = 3 + Math.floor(rnd() * 3);
+        for (let i = 0; i < n; i++) { const d = t + rnd() * 15; times.push(d, d + 60 + rnd() * 80); }
+        t += 150 + rnd() * 250;
+      } else {
+        const n = 4 + Math.floor(rnd() * 5);
+        for (let i = 0; i < n; i++) { times.push(t, t + 40 + rnd() * 60); t += 8 + rnd() * 32; }
+        t += 80 + rnd() * 200;
+      }
+    }
+    return times.map((x) => {
+      let r = Math.ceil((x - phase) / T) * T + phase + Math.abs(gauss()) * 0.06;
+      if (rnd() < 0.1) r += rnd() * 1.5;
+      return Math.floor(r / 0.1) * 0.1;
+    });
+  };
+  let n = 0;
+  for (const rate of [125, 250, 500, 1000, 2000, 4000, 8000]) {
+    for (const style of ['roll', 'slap']) {
+      for (let k = 0; k < 20; k++) {
+        const r = PollingRate.estimate(session(rate, style));
+        n++;
+        const ok = rate <= 2000 ? r.kind === 'exact' && r.rate === rate : r.kind === 'over';
+        if (!ok) fail(`polling ${rate} Hz (${style}): said ${r.kind} ${r.rate}`);
+      }
+    }
+  }
+  if (PollingRate.estimate([1, 2, 3]).kind !== 'need-more') fail('polling: decided from 3 events');
+
+  // descriptor arithmetic: full speed bInterval is ms (rounded down to a power of 2), high speed 2^(n-1) x 125 us
+  const cases = [[1, 'full', 1], [4, 'full', 4], [10, 'full', 8], [1, 'high', 0.125], [4, 'high', 1], [8, 'low', 8]];
+  cases.forEach(([b, sp, want]) => { if (usb.periodMs(b, sp) !== want) fail(`periodMs(${b}, ${sp}) = ${usb.periodMs(b, sp)}, want ${want}`); });
+  const kb = usb.summarize([
+    { vendorId: 1, productId: 2, product: 'Board', speed: 'high', interfaces: [
+      { number: 0, cls: 3, subclass: 1, protocol: 1, endpoints: [{ address: 0x81, attributes: 3, bInterval: 1 }] },
+      { number: 1, cls: 3, subclass: 0, protocol: 0, endpoints: [{ address: 0x82, attributes: 3, bInterval: 4 }, { address: 0x02, attributes: 3, bInterval: 1 }] }] },
+    { vendorId: 3, productId: 4, product: 'Headset', speed: 'full', interfaces: [{ number: 3, cls: 3, subclass: 0, protocol: 0, endpoints: [{ address: 0x83, attributes: 3, bInterval: 4 }] }] },
+    { vendorId: 5, productId: 6, product: 'Disk', speed: 'high', interfaces: [{ number: 0, cls: 8, subclass: 6, protocol: 80, endpoints: [{ address: 0x81, attributes: 2, bInterval: 0 }] }] },
+  ]);
+  if (kb.length !== 2 || kb[0].rate !== 8000 || !kb[0].keyboard || kb[1].rate !== 250 || kb[1].keyboard) fail(`usb summarize: ${JSON.stringify(kb)}`);
+  console.log(`polling: ${n} simulated key press sessions, USB descriptor arithmetic`);
 }
 
 (async () => {
@@ -229,6 +304,7 @@ function bundleTests() {
   await detectionTests();
   await vialTests();
   bundleTests();
+  pollingTests();
   console.log(failures ? `\n${failures} failure(s)` : '\nall tests passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

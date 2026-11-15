@@ -5,7 +5,8 @@ An offline desktop app for Windows, macOS and Linux. It covers the parts of VIA 
 1. **Key tester**: works with any keyboard.
    - *Any keyboard* mode shows a full-size layout and lights up keys from normal key events. It shows press counts (handy for spotting chatter) and lists keys that aren't on the layout.
    - *Switch matrix* mode reads the physical switches straight from the firmware, so Fn and layer keys show up too.
-2. **Keymap editor** for keyboards running VIA-compatible firmware (QMK with VIA, and Vial). It covers every layer, layout options (split backspace and so on), rotary encoders, layer-tap and mod-tap, backup and restore. Changes are written to the keyboard right away. **No definition file needed**: the layout is found automatically (see below).
+   - *Polling rate* mode shows each USB keyboard's real polling rate, read from its USB descriptor (Windows and Linux), and measures it from your key presses (any keyboard, any system).
+2. **Keymap editor** for keyboards running VIA-compatible firmware (QMK with VIA, and Vial). It covers every layer, layout options (split backspace and so on), rotary encoders, layer-tap and mod-tap, backup and restore. Changes are written to the keyboard right away. **No definition file needed**: the layout is found automatically (see below). Keyboards with a split backspace option (over 800 in VIA's list, plus the Venom 60 HE) get a **Backspace: Full | Split** switch in the keyboard panel above the layout.
 3. **Geonworks Venom HE support** (tested with the Venom 60 HE RGB 7U): keymap editing on all 4 layers, the 4 profiles, split backspace, Venom function keys, the live switch test, and the **polling rate switch (8000 Hz / 1000 Hz)**.
 
 Everything runs on your computer: no internet, no accounts.
@@ -45,6 +46,15 @@ First-run notes:
    - use **Assign by pressing a key** and type on your keyboard. Each key press assigns and moves to the next key.
 4. Use **Save backup** before big changes. **Restore** writes only the keys that differ.
 
+The panel above the layout holds the keyboard's settings: **Backspace** (full or split, when the layout has that option) and **Check polling rate**.
+
+## Check the polling rate
+
+Open **Tester → Polling rate**, or click **Check polling rate** in the keyboard panel.
+
+- **From the USB connection**: the rate each plugged-in keyboard asks for in its USB descriptor. The computer polls it exactly this often, so this is the real number (for example 1000 Hz on full-speed USB, 8000 Hz on high-speed USB). Replug a keyboard after changing its rate, then click **Check again**. Available on Windows and Linux; macOS doesn't share it with apps.
+- **Key press test**: drum your fingers across several keys, or press a few at once, for about 5 seconds. Key changes reach the computer on polling ticks, so the gaps between them reveal the rate. This works with any keyboard and tells 125 to 2000 Hz apart exactly; faster keyboards show as "over 2000 Hz", because the browser's clock can't tell 4000 from 8000 Hz.
+
 Click **Try the demo keyboard** to explore the editor without hardware.
 
 ## Geonworks Venom HE boards
@@ -52,7 +62,8 @@ Click **Try the demo keyboard** to explore the editor without hardware.
 Connect the same way. The Venom 60 HE layout is built in. Other Venom boards fall back to an 8×16 grid, or you can load a definition.
 
 - **Profile** switches the keyboard's active profile (1–4) and loads its keymap.
-- **Polling rate** sets 8000 Hz (default) or forces 1000 Hz. **Unplug and replug the keyboard to apply it.** The panel shows the speed the keyboard is actually running at. Geonworks fixed this mode in firmware 148, so on older firmware it may not take effect; update through venom.how if so. The firmware has no 2000 or 4000 Hz setting.
+- **Backspace** switches the keyboard's own split backspace setting.
+- **Polling rate** sets 8000 Hz (default) or forces 1000 Hz. **Unplug and replug the keyboard to apply it**, then use **Check** to see the rate it now runs at. The panel shows the speed the keyboard is actually running at. Geonworks fixed this mode in firmware 148, so on older firmware it may not take effect; update through venom.how if so. The firmware has no 2000 or 4000 Hz setting.
 - **Venom tab** in the key picker: Win lock, Alt-F4 / Alt-Tab lock, OKS toggle, RGB keys, recalibrate.
 - Keys marked **★** are advanced keys (DKS, tap-hold, toggle…) made in venom.how. They're shown but can't be edited here, and assigning a normal key to one replaces it. Backups skip them on restore.
 - Calibration, firmware updates, lighting and factory reset stay in venom.how. This app never sends those commands. They're blocked in `app/js/venom.js`.
@@ -75,7 +86,7 @@ npm run dist
 Other commands:
 
 - `npm run defs` refreshes the packed VIA keyboard list from [the-via/keyboards](https://github.com/the-via/keyboards).
-- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware) and Vial layout reading.
+- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware), Vial layout reading, split backspace recognition and the polling rate estimate.
 
 Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux versions and attach them to a release (`.github/workflows/build.yml`).
 
@@ -84,10 +95,12 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 | Path | What it is |
 |---|---|
 | `electron/main.js` | Desktop shell: window, keyboard picker, remembered keyboards, definitions folders, VIA keyboard list lookup |
+| `electron/usb-polling.js` | Reads keyboards' polling rates from their USB descriptors (Windows, Linux) |
 | `electron/preload.js` | The small bridge the page can use (definitions, device picker) |
 | `scripts/build-via-definitions.js` | Packs VIA's keyboard definitions into `generated/via-definitions.json.br` (about 190 KB) |
 | `app/` | The interface (plain HTML/CSS/JS, Material Design 3) |
 | `app/js/via.js` | VIA raw-HID protocol over WebHID, Vial layout and knobs, matrix-size detection |
+| `app/js/polling.js` | Estimates the polling rate from key press times |
 | `app/js/xz.js` | Small .xz decompressor for the layouts Vial keyboards store |
 | `app/js/venom.js` | Geonworks Venom HE protocol, Venom 60 HE layout, polling rate |
 | `app/js/keycodes.js` | Keycode tables for VIA protocols 9–13 (old and new QMK numbering) |

@@ -1,6 +1,8 @@
 /* Local Keymap - key tester.
  * "Any keyboard" mode listens to browser key events on a full-size ANSI layout.
- * "Switch matrix" mode polls a VIA keyboard's raw switch matrix, so it also sees Fn and remapped keys. */
+ * "Switch matrix" mode polls a VIA keyboard's raw switch matrix, so it also sees Fn and remapped keys.
+ * "Polling rate" mode reads each USB keyboard's polling rate from its descriptors (desktop app on
+ * Windows/Linux) and measures it from key presses (any keyboard, see polling.js). */
 (function () {
   'use strict';
 
@@ -46,6 +48,7 @@
     pressed: new Set(), tested: new Set(), counts: new Map(), extras: new Map(), log: [],
     els: new Map(),
     matrix: { running: false, keys: [], els: [], tested: new Set(), errors: 0, scans: 0, since: 0, last: null },
+    poll: { times: [], usb: null, scanning: false, raf: 0 },
   };
 
   const App = () => window.App;
@@ -57,7 +60,10 @@
     stopMatrix();
     const host = $('#testerBoard');
     T.els.clear();
-    if (T.mode === 'browser') {
+    $('#tab-tester').dataset.mode = T.mode;
+    if (T.mode === 'polling') {
+      renderPolling();
+    } else if (T.mode === 'browser') {
       const els = Board.render(host, LAYOUT, { maxUnit: 50 });
       els.forEach((el, i) => {
         const k = LAYOUT[i];
@@ -87,6 +93,7 @@
   }
 
   function renderInfo() {
+    if (T.mode === 'polling') { $('#testerCount').textContent = ''; return; }
     const browser = T.mode === 'browser';
     const total = browser ? LAYOUT.length : T.matrix.keys.filter((k) => k.row >= 0).length;
     const tested = browser ? LAYOUT.filter((k) => T.tested.has(k.id)).length : T.matrix.tested.size;
@@ -117,6 +124,7 @@
 
   // ---------------------------------------------------------------- browser events
   function onDown(e) {
+    if (active() && T.mode === 'polling') { onPollKey(e); return; }
     if (!active() || T.mode !== 'browser') return;
     e.preventDefault();
     const code = e.code || `key:${e.key}`;
@@ -135,6 +143,7 @@
   }
 
   function onUp(e) {
+    if (active() && T.mode === 'polling') { onPollKey(e); return; }
     if (!active() || T.mode !== 'browser') return;
     e.preventDefault();
     const code = e.code || `key:${e.key}`;
@@ -161,6 +170,7 @@
   function reset() {
     T.pressed.clear(); T.tested.clear(); T.counts.clear(); T.extras.clear(); T.log = [];
     T.matrix.tested.clear();
+    T.poll.times = [];
     ['lastKey', 'lastCode', 'lastKeyCode'].forEach((id) => { $('#' + id).textContent = '-'; });
     render();
   }
@@ -223,6 +233,135 @@
     renderInfo();
   }
 
+  // ---------------------------------------------------------------- polling rate
+  const SPEED = { low: 'Low-speed', full: 'Full-speed', high: 'High-speed', super: 'SuperSpeed' };
+  const ms = (v) => `${+v.toFixed(3)} ms`;
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+
+  function renderPolling() {
+    $('#testerBoard').innerHTML = `
+      <div class="poll">
+        <section class="poll-card">
+          <div class="poll-head">
+            <h3 class="t-title-medium">From the USB connection</h3><span class="spacer"></span>
+            <button class="btn text" id="btnPollScan"><svg class="icon"><use href="#i-refresh"/></svg>Check again</button>
+          </div>
+          <p class="t-body-small muted">The rate each keyboard asks for in its USB descriptor. The computer polls it exactly this often, so this is the real number. After changing a keyboard's rate, replug it and check again.</p>
+          <div id="pollUsb" class="poll-list"></div>
+        </section>
+        <section class="poll-card">
+          <div class="poll-head">
+            <h3 class="t-title-medium">Key press test</h3><span class="spacer"></span>
+            <button class="btn text" id="btnPollReset"><svg class="icon"><use href="#i-refresh"/></svg>Start over</button>
+          </div>
+          <p class="t-body-small muted">Drum your fingers across several keys, or press a few keys at once, for about 5 seconds. Works with any keyboard: each key change reaches the computer on a polling tick, so the gaps between them show the rate.</p>
+          <div class="poll-result"><span id="pollValue" class="poll-value">—</span><span id="pollNote" class="t-body-medium muted"></span></div>
+          <div id="pollHist" class="poll-hist" aria-hidden="true"></div>
+          <div class="poll-axis t-body-small muted"><span>0</span><span>1 ms</span><span>2 ms</span><span>3 ms</span><span>4 ms</span></div>
+          <p id="pollStats" class="t-body-small muted"></p>
+        </section>
+      </div>`;
+    $('#btnPollScan').addEventListener('click', scanUsb);
+    $('#btnPollReset').addEventListener('click', () => { T.poll.times = []; paintPollResult(); });
+    $('#testerHint').textContent = '';
+    paintUsb();
+    paintPollResult();
+    if (!T.poll.usb && !T.poll.scanning) scanUsb();
+  }
+
+  async function scanUsb() {
+    const desktop = window.localKeymap;
+    if (!desktop || !desktop.usbPollingRates || T.poll.scanning) { paintUsb(); return; }
+    T.poll.scanning = true;
+    paintUsb();
+    try {
+      T.poll.usb = await desktop.usbPollingRates();
+    } catch (e) {
+      T.poll.usb = { supported: true, keyboards: [], error: e.message };
+    }
+    T.poll.scanning = false;
+    paintUsb();
+  }
+
+  function paintUsb() {
+    const host = $('#pollUsb');
+    if (!host) return;
+    host.innerHTML = '';
+    const P = T.poll;
+    const say = (text) => { host.appendChild(el('p', 't-body-medium muted', text)); };
+    if (!window.localKeymap) { say('Only the desktop app can read USB descriptors. Use the key press test below.'); return; }
+    if (P.scanning && !P.usb) { say('Reading USB devices…'); return; }
+    if (!P.usb) return;
+    if (!P.usb.supported) { say('macOS doesn’t share USB polling rates with apps. Use the key press test below.'); return; }
+    if (P.usb.error) { say(`Couldn’t read the USB devices (${P.usb.error}). Use the key press test below.`); return; }
+    const S = App().state;
+    const isCur = (k) => !!S.dev && k.vendorId === S.dev.vendorId && k.productId === S.dev.productId;
+    const rows = P.usb.keyboards.filter((k) => k.keyboard || isCur(k)).sort((a, b) => isCur(b) - isCur(a));
+    if (!rows.length) { say('No USB keyboards found.'); return; }
+    const hex = (n) => n.toString(16).padStart(4, '0').toUpperCase();
+    rows.forEach((k) => {
+      const row = el('div', 'poll-row' + (isCur(k) ? ' current' : ''));
+      const name = el('div', 'poll-name');
+      name.appendChild(el('span', 't-body-large', k.product || 'USB keyboard'));
+      name.appendChild(el('span', 't-body-small muted', `${hex(k.vendorId)}:${hex(k.productId)}${isCur(k) ? ' · connected in this app' : ''}`));
+      const rate = el('div', 'poll-rate');
+      rate.appendChild(el('span', 'poll-hz', `${k.rate} Hz`));
+      rate.appendChild(el('span', 't-body-small muted', `${SPEED[k.speed] || k.speed} USB · every ${ms(k.intervalMs)}`));
+      row.append(name, rate);
+      host.appendChild(row);
+    });
+    if (P.scanning) host.appendChild(el('p', 't-body-small muted', 'Checking again…'));
+  }
+
+  function onPollKey(e) {
+    e.preventDefault();
+    if (e.repeat) return;
+    const P = T.poll;
+    P.times.push(e.timeStamp);
+    if (P.times.length > 2000) P.times.splice(0, P.times.length - 2000);
+    if (!P.raf) P.raf = requestAnimationFrame(() => { P.raf = 0; paintPollResult(); });
+  }
+
+  function paintPollResult() {
+    const value = $('#pollValue');
+    if (!value) return;
+    const r = window.PollingRate.estimate(T.poll.times);
+    const note = $('#pollNote');
+    if (r.kind === 'need-more') {
+      value.textContent = T.poll.times.length ? 'Keep going…' : '—';
+      note.textContent = T.poll.times.length ? `${Math.min(r.gaps, 25)} of 25 quick key changes` : 'Waiting for key presses';
+    } else if (r.kind === 'over') {
+      value.textContent = 'Over 2000 Hz';
+      note.textContent = 'Too fast for the browser’s clock to tell 4000 from 8000 Hz. The USB reading above is exact.';
+    } else {
+      value.textContent = `${r.rate} Hz`;
+      note.textContent = r.steady ? 'measured from your key presses' : 'measured, but the timing is noisy: keep going for a steadier result';
+    }
+    const hist = $('#pollHist');
+    hist.innerHTML = '';
+    const max = Math.max(1, ...r.histogram);
+    r.histogram.forEach((n, i) => {
+      const bar = el('span', 'poll-bar');
+      bar.style.height = `${Math.round((n / max) * 100)}%`;
+      bar.title = `${(i * 0.25).toFixed(2)}-${((i + 1) * 0.25).toFixed(2)} ms: ${n}`;
+      hist.appendChild(bar);
+    });
+    $('#pollStats').textContent = r.events ? `${r.events} key events in ${r.reports} USB reports. Bars: how often each gap between reports came up.` : '';
+  }
+
+  /** From the keyboard panel's "Check" button: open this mode with a fresh USB reading. */
+  function openPolling() {
+    const tab = document.querySelector('.rail [data-tab=tester]');
+    if (tab && !App().isTabActive('tester')) tab.click();
+    T.poll.usb = null; // the keyboard may have been replugged with a new rate
+    setMode('polling');
+  }
+
   function stopMatrix() {
     T.matrix.running = false;
     $('#testerRate').textContent = '';
@@ -259,9 +398,11 @@
       if (active()) render();
     };
     document.addEventListener('lk:device', refreshMatrix);
+    document.addEventListener('lk:device', () => { if (T.mode === 'polling' && active()) paintUsb(); });
     document.addEventListener('lk:definition', refreshMatrix);
     render();
   }
 
+  window.Tester = { openPolling };
   document.addEventListener('DOMContentLoaded', init);
 })();
