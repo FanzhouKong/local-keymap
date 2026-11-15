@@ -14,6 +14,7 @@ const zlib = require('zlib');
 const ROOT = path.join(__dirname, '..');
 const SMOKE = process.argv.find((a) => a.startsWith('--smoke'));
 const SMOKE_MODE = SMOKE ? (SMOKE.split('=')[1] || 'demo') : null;
+const SMOKE_DEVICE = SMOKE && process.env.LK_SMOKE_DEVICE ? process.env.LK_SMOKE_DEVICE.split(':').map((h) => parseInt(h, 16)) : null;
 
 let win = null;
 let pendingChoice = null; // callback from "select-hid-device"
@@ -168,7 +169,13 @@ function createWindow() {
     win.webContents.send('lk:choose-device', lastDeviceList);
     if (SMOKE_MODE === 'device') {
       // self-test: behave like a person - wait for the list to fill, then pick the first keyboard
-      setTimeout(() => answerChoice(lastDeviceList[0] ? lastDeviceList[0].deviceId : ''), 2500);
+      // (or the one LK_SMOKE_DEVICE=vid:pid names)
+      setTimeout(() => {
+        const want = SMOKE_DEVICE && lastDeviceList.find((d) => d.vendorId === SMOKE_DEVICE[0] && d.productId === SMOKE_DEVICE[1]);
+        const pick = want || (SMOKE_DEVICE ? null : lastDeviceList[0]);
+        answerChoice(pick ? pick.deviceId : '');
+        win.webContents.executeJavaScript(`(() => { const d = document.querySelector('#devDialog'); if (d.open) d.close('auto'); return 1; })()`);
+      }, 2500);
     }
   });
   ses.on('hid-device-added', (_e, details) => {
@@ -236,8 +243,13 @@ async function runSmoke() {
     } else if (SMOKE_MODE === 'device') {
       await wait(1500); // a previously chosen keyboard reconnects by itself
       report.autoConnected = await js(`!!App.state.dev`);
+      if (report.autoConnected && SMOKE_DEVICE) {
+        const ids = await js(`[App.state.dev.vendorId, App.state.dev.productId]`);
+        if (ids[0] !== SMOKE_DEVICE[0] || ids[1] !== SMOKE_DEVICE[1]) { await js(`App.detach().then(() => 1)`); report.autoConnected = false; }
+      }
       if (!report.autoConnected) await js(`document.querySelector('#btnConnect').click(); 1`, true);
-      await wait(6000);
+      await wait(8000);
+      report.page2 = await js(`({ need: !document.querySelector('#kmNeedDef').classList.contains('hidden'), editor: !document.querySelector('#kmEditor').classList.contains('hidden'), vial: App.state.dev && App.state.dev.vialProtocol, protocol: App.state.protocol, layers: App.state.layers })`);
       // read-only: would the matrix size have been found without any layout? (VIA keyboards)
       report.detectMatrix = await js(`(async () => {
         const d = App.state.dev;
