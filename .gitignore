@@ -7,3 +7,5 @@ Thumbs.db
 smoke-*.png
 smoke-report.json
 generated/
+# vendor tools kept next to the project for reference (not ours to redistribute)
+/*.exe

@@ -7,7 +7,9 @@
  *     (when generated/ has been built),
  *  5. the polling rate estimate from key press times, and the USB descriptor arithmetic,
  *  6. the generic 65% / 60% layout: hand-made cases, the demo keyboard against its own definition,
- *     and (with generated/) VIA's ANSI 65% keyboards, their real wiring with typical keymaps. */
+ *     and (with generated/) VIA's ANSI 65% keyboards, their real wiring with typical keymaps,
+ *  7. the Endgame Gear mouse driver against a simulated mouse: reading, random edits written and read
+ *     back, bytes it must not touch, commands it must never send, sleep and cable cases. */
 'use strict';
 
 const fs = require('fs');
@@ -22,10 +24,10 @@ const FIX = path.join(__dirname, 'fixtures');
 const ctx = { console, setTimeout, clearTimeout, TextDecoder, EventTarget, Event, addEventListener() {} };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js', 'generic.js', 'mock.js']) {
+for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js', 'generic.js', 'mock.js', 'endgame.js', 'mock-mouse.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'app', 'js', f), 'utf8'), ctx, { filename: f });
 }
-const { ViaDevice, KLE, XZ, PollingRate, GenericLayout, MockVia } = ctx;
+const { ViaDevice, KLE, XZ, PollingRate, GenericLayout, MockVia, EndgameMouse, MockMouse } = ctx;
 const usb = require(path.join(ROOT, 'electron', 'usb-polling.js'));
 
 let failures = 0;
@@ -425,6 +427,109 @@ async function genericTests() {
   console.log(`generic vs VIA: ${tally.qwerty[0]} ANSI 65% keyboards, every key placed right on ${pct(tally.qwerty)}% (QWERTY) / ${pct(tally.colemak)}% (Colemak); split backspace found on ${splitFound} of ${splitBoards}`);
 }
 
+// ------------------------------------------------------------------ 7) Endgame Gear mouse
+async function mouseTests() {
+  const E = EndgameMouse;
+  const open = async (opts) => { const hid = MockMouse.create(opts); const m = new E(hid, { timeScale: 0 }); await m.open(); return { hid, m }; };
+  const same = (a, b) => a.length === b.length && Array.from(a).every((v, i) => v === b[i]);
+
+  // the dongle answers every GetFeature with its own report ID first, even when 0xA0 is asked for
+  const real = new Uint8Array(1040);
+  real.set([0xa1, 0x01]);
+  real.set(MockMouse.INITIAL, 16);
+  for (const id of [0xa0, 0xa1]) {
+    const r = E._full(new DataView(real.buffer), id, id === 0xa0 ? 1040 : 63);
+    if (r[1] !== 1 || r[16 + 5] !== 0x04) fail(`mouse: answer to 0x${id.toString(16)} misread`);
+  }
+  // a host that leaves the report ID out
+  const bare = E._full(new DataView(real.slice(1).buffer), 0xa1, 63);
+  if (bare[0] !== 0xa1 || bare[1] !== 1) fail('mouse: answer without report ID misread');
+
+  // reading: status and the settings block as a real XM2w 4k v2 holds them
+  const { hid, m } = await open();
+  if (m.info.firmware !== '1.07' || m.info.dongleFirmware !== '1.01' || m.info.battery !== 87 || !m.info.linked) fail(`mouse: info ${JSON.stringify(m.info)}`);
+  const s0 = m.settings;
+  if (s0.polling !== 0x04 || s0.lod !== 3 || s0.cpiCount !== 1 || s0.cpi(0).x !== 800 || !s0.flag('slamclick') || s0.timer('deepSleep').minutes !== 3) fail('mouse: settings decoded wrong');
+  if (s0.problems().length) fail('mouse: real settings flagged: ' + s0.problems().join(', '));
+  if (E.describeAction(s0.button(5)).id !== 'cpiLoop' || E.describeAction(s0.button(7)).id !== 'wheelDown') fail('mouse: buttons decoded wrong');
+
+  // every editable field reaches the mouse, and nothing else changes
+  let writes = 0;
+  for (let round = 0; round < 40; round++) {
+    const e = m.settings.clone();
+    const rnd = (n) => Math.floor(Math.random() * n);
+    e.polling = E.POLLING[rnd(5)][0];
+    e.motionSync = rnd(2) === 1;
+    e.glass = rnd(4) === 0;
+    e.lod = e.glass ? 1 + rnd(2) : rnd(11);
+    e.angleSnap = rnd(2) === 1; e.ripple = rnd(2) === 1; e.liftLed = rnd(2) === 1;
+    e.angleTune = rnd(255) - 127;
+    ['slamclick', 'filtersUnlocked', 'maxFps'].forEach((f) => e.setFlag(f, rnd(2) === 1));
+    e.setTimer('powerSave', rnd(2) === 1, 1 + rnd(120)); e.setTimer('deepSleep', rnd(2) === 1, 1 + rnd(120));
+    for (let i = 0; i < 4; i++) e.setCpi(i, 10 + rnd(30000), rnd(3) ? undefined : 10 + rnd(30000));
+    e.cpiCount = 1 + rnd(4); e.cpiCurrent = rnd(e.cpiCount);
+    for (let i = 0; i < 8; i++) if (i !== 5 && rnd(2)) {
+      const a = E.ACTIONS[rnd(E.ACTIONS.length)];
+      e.setButton(i, a[0] === 'key' ? { type: 2, code: rnd(16), value: 4 + rnd(0xa0) } : a[0] === 'fixedCpi' ? { type: 0x0c, code: 0, value: 400, value2: 800 } : { type: a[2], code: a[3] });
+    }
+    for (let i = 0; i < 5; i++) e.setFilter(i, i < 2 && rnd(4) === 0 ? 0xf0 + rnd(2) : rnd(26));
+    if (rnd(3) === 0) e.leftHanded = !e.leftHanded;
+    const before = Uint8Array.from(hid.mock.block);
+    const sent0 = hid.mock.sent.length;
+    const { sections, settings } = await m.writeSettings(e);
+    writes += sections.length;
+    if (!same(settings.b, e.b)) fail(`mouse: round ${round}: read back differs from what was written`);
+    // bytes the payloads don't carry stay as they were
+    const carried = new Set([1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0x6f]);
+    for (let i = 0x23; i < 0x6f; i++) carried.add(i);
+    for (let i = 0; i < 1024; i++) if (!carried.has(i) && hid.mock.block[i] !== before[i]) { fail(`mouse: round ${round}: byte 0x${i.toString(16)} changed`); break; }
+    const kinds = hid.mock.sent.slice(sent0).map((x) => x[0]).filter((c) => c >= 0x14 && c <= 0x16);
+    const want = sections.reduce((n, s) => n + (s === 'buttons' ? 2 : 1), 0);
+    if (kinds.length !== want) fail(`mouse: round ${round}: ${kinds.length} writes for ${sections.join(',')}`);
+  }
+  if (hid.mock.refused.length) fail('mouse: sent commands it should not: ' + hid.mock.refused.join(','));
+
+  // nothing changed: nothing written; bad values: nothing written
+  const n0 = hid.mock.sent.length;
+  await m.writeSettings(m.settings.clone());
+  if (hid.mock.sent.filter((x, i) => i >= n0 && x[0] >= 0x14 && x[0] <= 0x16).length) fail('mouse: wrote although nothing changed');
+  const bad = m.settings.clone();
+  bad.polling = 0x03;
+  const n1 = hid.mock.sent.length;
+  try { await m.writeSettings(bad); fail('mouse: wrote an unknown polling rate'); } catch (_) { /* refused */ }
+  if (hid.mock.sent.length !== n1) fail('mouse: sent something for a refused write');
+  for (const c of [0x13, 0x70, 0x71, 0x72]) {
+    try { await m._command([c], { wait: 0 }); fail(`mouse: command 0x${c.toString(16)} went out`); } catch (_) { /* refused */ }
+  }
+
+  // small rules: CPI rounding, left-handed swap, glass mode lift-off
+  [[7, 10], [1234, 1230], [10004, 10000], [12345, 12350], [30001, 30000]].forEach(([v, w]) => { if (E.Settings.roundCpi(v) !== w) fail(`mouse: CPI ${v} -> ${E.Settings.roundCpi(v)}`); });
+  const lh = new E.Settings(MockMouse.INITIAL.concat(new Array(1024 - MockMouse.INITIAL.length).fill(0)));
+  lh.setButton(1, { type: 0x20, code: 0xe2 }); // right button: mute
+  lh.setFilter(0, 5); lh.setFilter(1, 9);
+  const plain = Uint8Array.from(lh.b);
+  lh.leftHanded = true;
+  const [l0, r1] = [lh.button(0), lh.button(1)];
+  if (!(l0.type === 0x20 && l0.code === 0xe2 && l0.filter === 9 && r1.type === 0 && r1.code === 1 && r1.filter === 5)) fail('mouse: left-handed mode');
+  lh.leftHanded = false;
+  if (!same(lh.b, plain)) fail('mouse: left-handed mode off');
+  const g = m.settings.clone();
+  g.glass = false;
+  [[3, 1, 3], [9, 2, 10]].forEach(([lod, glassLod, back]) => {
+    g.lod = lod; g.glass = true;
+    if (g.lod !== glassLod) fail(`mouse: glass lift-off ${lod} -> ${g.lod}`);
+    g.glass = false;
+    if (g.lod !== back) fail(`mouse: lift-off after glass ${g.lod}`);
+  });
+
+  // asleep behind the dongle; on the cable no link checks
+  try { await open({ asleep: true }); fail('mouse: asleep mouse answered'); } catch (e) { if (!e.asleep) fail('mouse: asleep error: ' + e.message); }
+  const cable = await open({ wireless: false });
+  if (cable.hid.mock.sent.some((x) => x[0] === 0x0f || x[0] === 0x0d)) fail('mouse: dongle commands sent on the cable');
+  if (!cable.m.settings || cable.m.info.wireless) fail('mouse: cable mouse not read');
+  console.log(`mouse: settings read and decoded, 40 random edits written and read back (${writes} section writes), refusals checked`);
+}
+
 (async () => {
   xzTests();
   await detectionTests();
@@ -432,6 +537,7 @@ async function genericTests() {
   bundleTests();
   pollingTests();
   await genericTests();
+  await mouseTests();
   console.log(failures ? `\n${failures} failure(s)` : '\nall tests passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

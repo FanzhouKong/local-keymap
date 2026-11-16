@@ -3,7 +3,8 @@
  *  - "select-hid-device" is answered by the app's own Material device picker (via IPC),
  *  - device permissions are remembered, so the keyboard reconnects on the next start,
  *  - definitions/ folders are read through IPC instead of a local web server.
- * `--smoke[=demo|device]` runs a self-test, saves screenshots and quits (used for development). */
+ * `--smoke[=demo|grid|via|vial|device|picker|mouse|mousedemo|mousewrite]` runs a self-test, saves screenshots and
+ * quits (used for development). `mousewrite` changes three settings on the connected mouse and puts them back. */
 'use strict';
 
 const { app, BrowserWindow, ipcMain, Menu, shell, nativeTheme } = require('electron');
@@ -169,8 +170,8 @@ function createWindow() {
     lastDeviceList = details.deviceList.map(toInfo);
     pendingChoice = callback;
     win.webContents.send('lk:choose-device', lastDeviceList);
-    if (SMOKE_MODE === 'device') {
-      // self-test: behave like a person - wait for the list to fill, then pick the first keyboard
+    if (SMOKE_MODE === 'device' || SMOKE_MODE === 'mouse') {
+      // self-test: behave like a person - wait for the list to fill, then pick the first keyboard or mouse
       // (or the one LK_SMOKE_DEVICE=vid:pid names)
       setTimeout(() => {
         const want = SMOKE_DEVICE && lastDeviceList.find((d) => d.vendorId === SMOKE_DEVICE[0] && d.productId === SMOKE_DEVICE[1]);
@@ -233,6 +234,121 @@ async function runSmoke() {
     await wait(1200);
     report.page = await js(`({ title: document.title, hid: 'hid' in navigator, bridge: !!window.localKeymap, platform: window.localKeymap && window.localKeymap.platform })`);
     await shot('smoke-tester.png');
+    if (SMOKE_MODE === 'mouse' || SMOKE_MODE === 'mousewrite' || SMOKE_MODE === 'mousedemo') {
+      // mouse: the real Endgame Gear mouse, read only (status and settings, nothing is written);
+      // mousewrite: the real mouse, three settings changed through the page and saved, then the mouse's
+      //   original settings written back (only run it when that's wanted);
+      // mousedemo: the pretend mouse, edited through the page's controls and saved
+      const view = () => js(`({
+        title: document.querySelector('#pageTitle').textContent, status: document.querySelector('#msStatus').textContent,
+        keyboardButtonShown: getComputedStyle(document.querySelector('#btnConnect')).display !== 'none',
+        mouseButton: getComputedStyle(document.querySelector('#btnMsConnect')).display === 'none' ? null : document.querySelector('#btnMsConnect').innerText,
+        shown: ['#msEmpty', '#msAsleep', '#msEditor'].filter((s) => !document.querySelector(s).classList.contains('hidden')),
+        cards: [...document.querySelectorAll('#msCards .ms-card h3')].map((e) => e.textContent),
+        bar: document.querySelector('#msBar').classList.contains('hidden') ? null : document.querySelector('#msBarText').textContent,
+        toast: document.querySelector('#toast').className.includes('show') ? document.querySelector('#toast').textContent : null })`);
+      const summary = (expr) => js(`(() => { const s = ${expr}; if (!s) return null; const E = EndgameMouse;
+        return { polling: (E.POLLING.find(([c]) => c === s.polling) || [0, 'code ' + s.polling])[1], motionSync: s.motionSync, lod: s.glass ? s.lod : E.LOD[s.lod], glass: s.glass,
+          angleSnap: s.angleSnap, ripple: s.ripple, angleTune: s.angleTune, liftLed: s.liftLed, slamclick: s.flag('slamclick'), filtersUnlocked: s.flag('filtersUnlocked'), maxFps: s.flag('maxFps'),
+          powerSave: s.timer('powerSave'), deepSleep: s.timer('deepSleep'), cpi: [0, 1, 2, 3].slice(0, s.cpiCount).map((i) => s.cpi(i)), cpiCurrent: s.cpiCurrent + 1,
+          buttons: E.BUTTONS.map((n, i) => n + ': ' + E.describeAction(s.button(i)).label + (i < 5 ? ' (filter ' + s.filter(i) + ')' : '')), problems: s.problems() }; })()`);
+      await js(`document.querySelector('.rail [data-tab=mouse]').click(); 1`);
+      await wait(400);
+      if (SMOKE_MODE !== 'mousedemo') {
+        await wait(5000); // a mouse chosen before reconnects by itself
+        if (!(await js(`!!MouseTab.state.dev`))) {
+          await js(`document.querySelector('#btnMsConnect').click(); 1`, true);
+          await wait(9000);
+        }
+        report.mouse = await view();
+        report.mouseSettings = await summary('MouseTab.state.saved');
+        report.mouseInfo = await js(`MouseTab.state.dev && MouseTab.state.dev.info`);
+        await shot('smoke-mouse.png');
+        await js(`window.scrollTo(0, document.body.scrollHeight); 1`);
+        await wait(300);
+        await shot('smoke-mouse-bottom.png');
+        await js(`window.scrollTo(0, 0); 1`);
+        if (SMOKE_MODE === 'mousewrite' && (await js(`!!MouseTab.state.saved`))) {
+          await js(`window.__orig = Array.from(MouseTab.state.saved.b); 1`);
+          const idle = async () => { for (let i = 0; i < 60 && (await js(`MouseTab.state.busy`)); i++) await wait(500); };
+          await js(`(() => {
+            const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
+            set('ms-dsmin', '4'); set('ms-cpin0X', '810'); set('ms-btn7', 'volDown');
+            return 1; })()`);
+          await wait(300);
+          report.writeEdited = await view();
+          const t0 = Date.now();
+          await js(`document.querySelector('#btnMsSave').click(); 1`);
+          await wait(500);
+          await idle();
+          report.writeMs = Date.now() - t0;
+          report.writeSaved = await view();
+          report.writeReadBack = await summary('MouseTab.state.saved');
+          report.writeTook = await js(`(() => { const s = MouseTab.state.saved; return { deepSleep: s.timer('deepSleep').minutes, cpi: s.cpi(0).x, wheelDown: EndgameMouse.describeAction(s.button(7)).label,
+            otherBytesKept: Array.from(s.b).every((v, i) => [0x03, 0x24, 0x25, 0x26, 0x27, 0x68, 0x69].includes(i) || v === window.__orig[i]) }; })()`);
+          await shot('smoke-mouse-written.png');
+          // put the mouse's own settings back: read what it holds now, then write the original block
+          report.restore = await js(`(async () => {
+            const dev = MouseTab.state.dev;
+            await dev.readSettings();
+            const r = await dev.writeSettings(new EndgameMouse.Settings(window.__orig));
+            const same = Array.from(r.settings.b).every((v, i) => v === window.__orig[i]);
+            return { sections: r.sections, sameAsBefore: same };
+          })()`);
+          await js(`MouseTab.refresh().then(() => 1)`);
+          await wait(500);
+          await idle();
+          report.afterRestore = await summary('MouseTab.state.saved');
+        }
+      } else {
+        report.mouseEmpty = await view();
+        await shot('smoke-mouse-empty.png');
+        await js(`window.__mm = MockMouse.create(); MouseTab.attach(window.__mm, { timeScale: 0 }).then(() => 1)`);
+        await wait(800);
+        report.mouseDemo = await view();
+        report.mouseDemoSettings = await summary('MouseTab.state.saved');
+        await shot('smoke-mouse.png');
+        // change things through the page's own controls
+        await js(`(() => {
+          const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
+          const flip = (id) => { const e = document.getElementById(id); e.checked = !e.checked; e.dispatchEvent(new Event('change')); };
+          set('ms-poll', '2');
+          flip('ms-msync');
+          [...document.querySelectorAll('#msCards .segmented button')].find((b) => b.textContent === '3').click();
+          set('ms-cpin1X', '1234');
+          set('ms-lod', '5');
+          set('ms-btn3', 'key');
+          document.getElementById('ms-btn3').closest('.ms-group').querySelector('.ms-extra .btn').click();
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyC', ctrlKey: true }));
+          set('ms-btn7', 'volDown');
+          flip('ms-unlock');
+          set('ms-spdt0', '241');
+          set('ms-dsmin', '10');
+          return 1; })()`);
+        await wait(400);
+        report.mouseEdited = await view();
+        await shot('smoke-mouse-edited.png');
+        await js(`document.querySelector('#btnMsSave').click(); 1`);
+        await wait(1500);
+        report.mouseSaved = await view();
+        report.mouseWritten = await summary('new EndgameMouse.Settings(window.__mm.mock.block)');
+        report.mouseCommands = await js(`({ kinds: [...new Set(window.__mm.mock.sent.map((x) => x[0].toString(16)))], refused: window.__mm.mock.refused })`);
+        await shot('smoke-mouse-saved.png');
+        await js(`window.scrollTo(0, document.body.scrollHeight); 1`);
+        await wait(300);
+        await shot('smoke-mouse-bottom.png');
+        await js(`window.scrollTo(0, 0); 1`);
+        // the defaults, then discard
+        await js(`[...document.querySelectorAll('#msCards .btn')].find((b) => b.textContent.includes('Defaults')).click(); 1`);
+        await wait(300);
+        report.mouseDefaults = await view();
+        await js(`document.querySelector('#btnMsDiscard').click(); 1`);
+        await wait(300);
+        report.mouseDiscarded = await view();
+      }
+      await wait(300);
+      throw Object.assign(new Error('done'), { done: true });
+    }
     await js(`document.querySelector('.rail [data-tab=keymap]').click(); 1`);
     if (SMOKE_MODE === 'picker') {
       // open the real device picker, screenshot it, then cancel
@@ -358,7 +474,7 @@ async function runSmoke() {
     report.definitions = await js(`window.localKeymap.listDefinitions().then((l) => l.length)`);
     await shot(`smoke-${SMOKE_MODE}.png`);
   } catch (err) {
-    report.errors.push(String(err && err.stack || err));
+    if (!err || !err.done) report.errors.push(String(err && err.stack || err));
   }
   fs.writeFileSync(path.join(outDir, 'smoke-report.json'), JSON.stringify(report, null, 2));
   console.log('SMOKE ' + JSON.stringify(report));

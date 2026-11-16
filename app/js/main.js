@@ -195,7 +195,7 @@
   function setStatus(text) { $('#devStatus').textContent = text; }
   function updateStatus() {
     const btn = $('#btnConnect');
-    btn.className = S.dev ? 'btn outlined' : 'btn filled';
+    btn.className = `btn kb-only ${S.dev ? 'outlined' : 'filled'}`;
     btn.querySelector('span').textContent = S.dev ? 'Disconnect' : 'Connect keyboard';
     if (!S.dev) {
       setStatus('No keyboard connected');
@@ -321,6 +321,7 @@
       return;
     }
     try {
+      App.pickerFor = 'keyboard';
       const devs = await navigator.hid.requestDevice({ filters: [ViaDevice.FILTER, VenomDevice.FILTER] });
       const d = devs.find(isSupported) || devs[0];
       if (d) await attach(d);
@@ -855,16 +856,23 @@
     b.querySelector('span').textContent = on ? 'Listening… press keys (click to stop)' : 'Assign by pressing a key';
   }
 
-  /** Desktop shell: pick which keyboard to connect (answers WebHID's device request). */
+  /** Desktop shell: pick which keyboard (or mouse) to connect (answers WebHID's device request). */
   let pickerOpen = false;
+  const PICKER_TEXT = {
+    keyboard: ['Choose a keyboard', 'Only keyboards this app can configure are listed: VIA-compatible boards and Geonworks Venom HE.', 'keyboard'],
+    mouse: ['Choose a mouse', 'Only mice this app can configure are listed: Endgame Gear XM2w 4k v2, on its 4K dongle or its cable.', 'mouse'],
+  };
   function showDevicePicker(list) {
     const dlg = $('#devDialog');
     const host = $('#devList');
+    const [title, text, what] = PICKER_TEXT[App.pickerFor] || PICKER_TEXT.keyboard;
+    $('#devDialogTitle').textContent = title;
+    $('#devDialogText').textContent = text;
     const prev = host.querySelector('input:checked');
     const prevId = prev && prev.value;
     host.innerHTML = '';
     if (!list.length) {
-      host.innerHTML = '<p class="t-body-medium muted dev-empty">No supported keyboard found. Plug it in; it appears here automatically.</p>';
+      host.innerHTML = `<p class="t-body-medium muted dev-empty">No supported ${what} found. Plug it in; it appears here automatically.</p>`;
     }
     list.forEach((d, i) => {
       const row = document.createElement('label');
@@ -1014,7 +1022,8 @@
   function setTab(name) {
     document.querySelectorAll('.rail [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
-    $('#pageTitle').textContent = name === 'keymap' ? 'Keymap' : 'Key tester';
+    document.body.dataset.tab = name; // the top bar shows the keyboard or the mouse connection
+    $('#pageTitle').textContent = { keymap: 'Keymap', mouse: 'Mouse' }[name] || 'Key tester';
     if (name !== 'keymap') setListen(false);
     if (name === 'keymap' && S.def) renderKeymap();
     emit('lk:tab');
@@ -1029,6 +1038,7 @@
   }
 
   function init() {
+    document.body.dataset.tab = 'tester';
     document.querySelectorAll('.rail [data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
     anyPreview();
     $('#btnConnect').addEventListener('click', connectClicked);
@@ -1094,6 +1104,6 @@
     updateStatus();
   }
 
-  window.App = { state: S, attach, detach, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, packOptions, unpackOptions, decodeMatrix };
+  window.App = { state: S, attach, detach, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, setTab, packOptions, unpackOptions, decodeMatrix, pickerFor: 'keyboard' };
   document.addEventListener('DOMContentLoaded', init);
 })();

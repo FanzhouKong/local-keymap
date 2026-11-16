@@ -1,7 +1,7 @@
-# Local Keymap - let the logged-in desktop user talk to keyboard configuration interfaces.
+# Local Keymap - let the logged-in desktop user talk to keyboard and mouse configuration interfaces.
 #
-# Linux only lets root open /dev/hidraw* by default. VIA/QMK and Venom keyboards are configured
-# through a hidraw interface, so without this rule the app can't see them.
+# Linux only lets root open /dev/hidraw* by default. VIA/QMK and Venom keyboards and the Endgame Gear
+# mouse are configured through a hidraw interface, so without this rule the app can't see them.
 #
 # Install:
 #   sudo cp 50-local-keymap.rules /etc/udev/rules.d/

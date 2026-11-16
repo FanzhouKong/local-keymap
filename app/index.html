@@ -28,6 +28,13 @@
     <symbol id="i-speed" viewBox="0 0 24 24"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></symbol>
     <symbol id="i-backspace" viewBox="0 0 24 24"><path d="M22 3H7c-.69 0-1.23.35-1.59.88L0 12l5.41 8.11c.36.53.9.89 1.59.89h15c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12.59L17.59 17 14 13.41 10.41 17 9 15.59 12.59 12 9 8.41 10.41 7 14 10.59 17.59 7 19 8.41 15.41 12 19 15.59z"/></symbol>
     <symbol id="i-person" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24"><path d="M13 1.07V9h7c0-4.08-3.05-7.44-7-7.93zM4 15c0 4.42 3.58 8 8 8s8-3.58 8-8v-4H4v4zm7-13.93C7.05 1.56 4 4.92 4 9h7V1.07z"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></symbol>
+    <symbol id="i-touch" viewBox="0 0 24 24"><path d="M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6 0 2.97-2.17 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93 0-4.42-3.58-8-8-8zm-6 8c0-1.65.67-3.15 1.76-4.24L6.34 7.34C4.9 8.79 4 10.79 4 13c0 4.08 3.05 7.44 7 7.93v-2.02c-2.83-.48-5-2.94-5-5.91z"/></symbol>
   </svg>
 
   <div class="app">
@@ -41,14 +48,21 @@
         <span class="rail-ind"><svg class="icon"><use href="#i-tune"/></svg></span>
         <span class="rail-label">Keymap</span>
       </button>
+      <div class="rail-divider" aria-hidden="true"></div>
+      <button class="rail-item" data-tab="mouse">
+        <span class="rail-ind"><svg class="icon"><use href="#i-mouse"/></svg></span>
+        <span class="rail-label">Mouse</span>
+      </button>
     </nav>
 
     <div class="content">
       <header class="top-bar">
         <h1 id="pageTitle" class="t-title-large">Key tester</h1>
         <span class="spacer"></span>
-        <span class="device-status"><svg class="icon s18"><use href="#i-usb"/></svg><span id="devStatus">No keyboard connected</span></span>
-        <button id="btnConnect" class="btn filled"><svg class="icon"><use href="#i-usb"/></svg><span>Connect keyboard</span></button>
+        <span class="device-status kb-only"><svg class="icon s18"><use href="#i-usb"/></svg><span id="devStatus">No keyboard connected</span></span>
+        <button id="btnConnect" class="btn filled kb-only"><svg class="icon"><use href="#i-usb"/></svg><span>Connect keyboard</span></button>
+        <span class="device-status ms-only"><svg class="icon s18"><use href="#i-mouse"/></svg><span id="msStatus">No mouse connected</span></span>
+        <button id="btnMsConnect" class="btn filled ms-only"><svg class="icon"><use href="#i-usb"/></svg><span>Connect mouse</span></button>
       </header>
 
       <div id="noHid" class="banner hidden">
@@ -172,6 +186,39 @@
             <p class="t-body-small muted">Changes are written to the keyboard immediately and kept after unplugging.</p>
           </div>
         </section>
+
+        <!-- ======================= MOUSE ======================= -->
+        <section id="tab-mouse" class="tab">
+          <div id="msEmpty" class="card outlined empty">
+            <div class="empty-icon"><svg class="icon"><use href="#i-mouse"/></svg></div>
+            <h2 class="t-headline-small">Connect a mouse</h2>
+            <p class="t-body-medium muted">Plug in the mouse's 4K dongle, or the mouse by its cable, then choose it from the list. Supported: Endgame Gear XM2w 4k v2.</p>
+            <div class="actions">
+              <button id="btnMsConnect2" class="btn filled"><svg class="icon"><use href="#i-usb"/></svg>Connect mouse</button>
+              <button id="btnMsDemo" class="btn tonal"><svg class="icon"><use href="#i-science"/></svg>Try the demo mouse</button>
+            </div>
+            <p class="t-body-small muted">Everything runs on this computer. Nothing is downloaded or uploaded.</p>
+          </div>
+
+          <div id="msAsleep" class="card outlined empty hidden">
+            <div class="empty-icon"><svg class="icon"><use href="#i-mouse"/></svg></div>
+            <h2 class="t-headline-small">The mouse isn't answering</h2>
+            <p class="t-body-medium muted" id="msAsleepText">The dongle is connected, but the mouse didn't answer through it. Switch the mouse on, or move it to wake it up, then try again.</p>
+            <div class="actions">
+              <button id="btnMsRetry" class="btn filled"><svg class="icon"><use href="#i-refresh"/></svg>Try again</button>
+            </div>
+          </div>
+
+          <div id="msEditor" class="hidden">
+            <div id="msCards" class="ms-grid"></div>
+            <div id="msBar" class="ms-bar hidden">
+              <span id="msBarText" class="t-body-medium"></span>
+              <span class="spacer"></span>
+              <button id="btnMsDiscard" class="btn text">Discard</button>
+              <button id="btnMsSave" class="btn filled"><svg class="icon"><use href="#i-save"/></svg><span>Save to mouse</span></button>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   </div>
@@ -191,8 +238,8 @@
 
   <dialog id="devDialog" class="md-dialog">
     <form method="dialog">
-      <h2 class="t-headline-small">Choose a keyboard</h2>
-      <p class="t-body-medium">Only keyboards this app can configure are listed: VIA-compatible boards and Geonworks Venom HE.</p>
+      <h2 class="t-headline-small" id="devDialogTitle">Choose a keyboard</h2>
+      <p class="t-body-medium" id="devDialogText">Only keyboards this app can configure are listed: VIA-compatible boards and Geonworks Venom HE.</p>
       <div id="devList" class="dev-list" role="radiogroup" aria-label="Keyboards"></div>
       <div class="dialog-actions">
         <button value="cancel" class="btn text">Cancel</button>
@@ -210,10 +257,13 @@
   <script src="js/xz.js"></script>
   <script src="js/via.js"></script>
   <script src="js/venom.js"></script>
+  <script src="js/endgame.js"></script>
   <script src="js/mock.js"></script>
+  <script src="js/mock-mouse.js"></script>
   <script src="js/polling.js"></script>
   <script src="js/generic.js"></script>
   <script src="js/main.js"></script>
   <script src="js/tester.js"></script>
+  <script src="js/mouse.js"></script>
 </body>
 </html>

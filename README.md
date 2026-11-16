@@ -1,6 +1,6 @@
 # Local Keymap
 
-An offline desktop app for Windows, macOS and Linux. It covers the parts of VIA most people use, plus support for Geonworks Venom HE boards.
+An offline desktop app for Windows, macOS and Linux. It covers the parts of VIA most people use, plus support for Geonworks Venom HE boards and the Endgame Gear XM2w 4k v2 mouse.
 
 1. **Key tester**: works with any keyboard.
    - *Any keyboard* mode shows a full-size layout and lights up keys from normal key events. It shows press counts (handy for spotting chatter) and lists keys that aren't on the layout.
@@ -8,6 +8,7 @@ An offline desktop app for Windows, macOS and Linux. It covers the parts of VIA 
    - *Polling rate* mode shows each USB keyboard's real polling rate, read from its USB descriptor (Windows and Linux), and measures it from your key presses (any keyboard, any system).
 2. **Keymap editor** for keyboards running VIA-compatible firmware (QMK with VIA, and Vial). It covers every layer, layout options (split backspace and so on), rotary encoders, layer-tap and mod-tap, backup and restore. Changes are written to the keyboard right away. **No definition file needed**: the layout is found automatically (see below). Keyboards with a split backspace option (over 800 in VIA's list, plus the Venom 60 HE) get a **Backspace: Full | Split** switch in the keyboard panel above the layout.
 3. **Geonworks Venom HE support** (tested with the Venom 60 HE RGB 7U): keymap editing on all 4 layers, the 4 profiles, split backspace, Venom function keys, the live switch test, and the **polling rate switch (8000 Hz / 1000 Hz)**.
+4. **Mouse tab for the Endgame Gear XM2w 4k v2** (on its 4K dongle or its cable): battery, firmware versions, CPI levels, polling rate up to 4000 Hz, motion sync, lift-off distance, glass mode, angle snapping, ripple control, button remapping, click filters and power saving.
 
 Everything runs on your computer: no internet, no accounts.
 
@@ -25,7 +26,7 @@ First-run notes:
 
 - **Windows:** the app isn't code-signed, so SmartScreen may warn. Choose *More info* → *Run anyway*.
 - **macOS:** the app isn't notarized. Open it once with right-click → *Open* (or *System Settings → Privacy & Security → Open Anyway*).
-- **Linux:** by default only root can open keyboard configuration interfaces. Install the udev rule once, then replug the keyboard:
+- **Linux:** by default only root can open keyboard and mouse configuration interfaces. Install the udev rule once, then replug the keyboard or the mouse's dongle:
 
   ```bash
   sudo cp linux/50-local-keymap.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -69,6 +70,21 @@ Connect the same way. The Venom 60 HE layout is built in. Other Venom boards fal
 - Keys marked **★** are advanced keys (DKS, tap-hold, toggle…) made in venom.how. They're shown but can't be edited here, and assigning a normal key to one replaces it. Backups skip them on restore.
 - Calibration, firmware updates, lighting and factory reset stay in venom.how. This app never sends those commands. They're blocked in `app/js/venom.js`.
 
+## Endgame Gear XM2w 4k v2 mouse
+
+Open the **Mouse** tab on the left and click **Connect mouse**. Pick the 4K dongle (*Endgame Gear HS Dongle*), or the mouse itself when it's plugged in by its cable. Next time it reconnects by itself. If the dongle is found but the mouse doesn't answer, move the mouse to wake it up and click **Try again**.
+
+- **Status:** connection, battery (on the cable: charging or full), mouse and dongle firmware. **Refresh** reads everything again.
+- **CPI:** 1 to 4 levels, 10 to 30000 CPI (steps of 10, and of 50 above 10000), separate X and Y if you like, and which level is in use. The CPI button on the bottom steps through the levels.
+- **Polling rate and sensor:** 4000, 2000 or 1000 Hz, 1000 Hz with power saving, or 125 Hz office mode; motion sync; lift-off distance 0.7 to 1.7 mm; sensor glass mode (lift-off 1.0 or 2.0 mm, 1000 Hz); angle snapping; ripple control; force max sensor fps; sensor angle tuning; LED on lift-off. On the cable the mouse reports at 1000 Hz, so the polling rate shown there is the wireless one.
+- **Buttons:** right, middle, back, forward, wheel up and wheel down can be any mouse button, scrolling, a keyboard key with Ctrl/Shift/Alt/Win, CPI loop, a fixed CPI while held, media keys, web browser, file explorer, or nothing. Left-handed mode swaps the left and right buttons.
+- **Click filters:** slamclick filter, and the multiclick filter of each button (0 to 25, unlocked by its switch), or the GX Speed / GX Safe SPDT modes on the left and right buttons.
+- **Power:** power saving and deep sleep, each after 1 to 120 minutes.
+
+Changes are collected until you click **Save to mouse**; then the app writes them and reads the settings back. **Defaults** loads the factory settings into the page (written when you save). **Try the demo mouse** shows the tab without a mouse.
+
+Pairing, firmware updates and the factory reset command stay in Endgame Gear's own tool: the app never sends those commands (they're blocked in `app/js/endgame.js`).
+
 ## Build from source
 
 Requires Node.js 20 or newer.
@@ -87,7 +103,7 @@ npm run dist
 Other commands:
 
 - `npm run defs` refreshes the packed VIA keyboard list from [the-via/keyboards](https://github.com/the-via/keyboards).
-- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware), Vial layout reading, split backspace recognition, the polling rate estimate, and the generic 65% layout (against VIA's 65% keyboards).
+- `npm test` checks the .xz decoder, matrix-size detection (against simulated QMK firmware), Vial layout reading, split backspace recognition, the polling rate estimate, the generic 65% layout (against VIA's 65% keyboards), and the mouse driver (against a simulated XM2w 4k v2).
 
 Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux versions and attach them to a release (`.github/workflows/build.yml`).
 
@@ -105,6 +121,9 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 | `app/js/generic.js` | Lays out a keyboard without a layout as a standard 65% / 60% board, from its keymap |
 | `app/js/xz.js` | Small .xz decompressor for the layouts Vial keyboards store |
 | `app/js/venom.js` | Geonworks Venom HE protocol, Venom 60 HE layout, polling rate |
+| `app/js/endgame.js` | Endgame Gear XM2w 4k v2 protocol (4K dongle and cable) and its settings block |
+| `app/js/mouse.js` | The Mouse tab |
+| `app/js/mock-mouse.js` | The demo mouse (also used by the tests) |
 | `app/js/keycodes.js` | Keycode tables for VIA protocols 9–13 (old and new QMK numbering) |
 | `app/js/kle.js` | VIA definition layout parser |
 | `app/js/mock.js` | The demo keyboard |
@@ -126,8 +145,8 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 - Icons: [Material Symbols](https://fonts.google.com/icons) (Apache License 2.0).
 - KLE label alignment table: [kle-serial](https://github.com/ijprest/kle-serial) (MIT).
 - Keyboard layouts: the [VIA keyboards repository](https://github.com/the-via/keyboards) (GPL-3.0), packed into the app at build time. Test fixtures include `vial.json` files from [vial-qmk](https://github.com/vial-kb/vial-qmk) (GPL-2.0-or-later).
-- Protocol references: [Vial](https://github.com/vial-kb/vial-gui), [VIA](https://github.com/the-via/app) and its [reader](https://github.com/the-via/reader), [QMK](https://github.com/qmk/qmk_firmware). The Venom HE protocol was worked out from the official configurator (venom.how) for interoperability with these keyboards.
-- Not affiliated with Geonworks, VIA or QMK.
+- Protocol references: [Vial](https://github.com/vial-kb/vial-gui), [VIA](https://github.com/the-via/app) and its [reader](https://github.com/the-via/reader), [QMK](https://github.com/qmk/qmk_firmware). The Venom HE protocol was worked out from the official configurator (venom.how), and the XM2w 4k v2 protocol from Endgame Gear's configuration tool, for interoperability with these devices.
+- Not affiliated with Geonworks, Endgame Gear, VIA or QMK.
 
 ## License
 
