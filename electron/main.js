@@ -323,6 +323,18 @@ async function runSmoke() {
         await js(`document.querySelector('#btnGeneric').click(); 1`);
         await wait(1500);
         report.gridToGeneric = await view();
+        // a grid size set by hand (older versions saved one from "Use grid") doesn't hide the
+        // generic layout; it's what the grid view shows
+        await js(`localStorage.setItem('lk.def.4c4b:0060', JSON.stringify({ name: 'Demo', vendorId: '0x4C4B', productId: '0x0060', grid: true, matrix: { rows: 5, cols: 15 }, layouts: { keymap: KLE.gridKeymap(5, 15) } })); App.attach(MockVia.create({ definition: false })).then(() => 1)`);
+        await wait(1500);
+        report.handGrid = await view();
+        await js(`document.querySelector('#btnGeneric').click(); 1`);
+        await wait(1500);
+        report.handGridToGrid = await view();
+        await js(`document.querySelector('#btnGeneric').click(); 1`);
+        await wait(1500);
+        report.handGridBack = await view();
+        await js(`localStorage.removeItem('lk.def.4c4b:0060'); 1`);
       }
     }
     report.panel = await js(`document.querySelector('#devPanel').classList.contains('hidden') ? null : document.querySelector('#devPanel').innerText.replace(/\\n+/g, ' | ')`);

@@ -120,7 +120,10 @@
    *  1. a file in the definitions folder   2. a file loaded earlier in the app
    *  3. the layout stored in the keyboard (Vial)   4. a built-in layout (Venom, demo)
    *  5. VIA's keyboard list, shipped with the app   6. a generic 65% / 60% layout, arranged from
-   *  the keymap   7. a matrix grid, size read from the keyboard */
+   *  the keymap   7. a matrix grid: the size set by hand, or else read from the keyboard.
+   * A grid size set by hand only stands in for the automatic grid: it was set because nothing
+   * better was known then, so it must not hide a layout found since (older versions saved one
+   * from their "Use grid" button for every keyboard without a definition). */
   async function findDefinition(dev, hid) {
     S.genericAvailable = false;
     const vid = dev.vendorId, pid = dev.productId;
@@ -135,9 +138,14 @@
         }
       } catch (e) { console.warn(e); }
     }
+    let handGrid = null;
     const saved = store.get(defKey(vid, pid));
     if (saved) {
-      try { return { def: prepareDefinition(JSON.parse(saved)), source: 'saved in app', kind: 'saved' }; } catch (e) { console.warn(e); }
+      try {
+        const def = prepareDefinition(JSON.parse(saved));
+        if (!def.grid) return { def, source: 'saved in app', kind: 'saved' };
+        handGrid = { def, source: `matrix grid, ${def.rows} × ${def.cols} set by hand`, kind: 'saved' };
+      } catch (e) { console.warn(e); }
     }
     if (dev.vialProtocol >= 0 && dev.readVialDefinition) {
       try {
@@ -168,12 +176,13 @@
             }
           } catch (e) { console.warn('Generic layout:', e); }
         }
+        if (handGrid) return handGrid;
         const def = prepareDefinition(gridJson(rows, cols));
         def.gridSure = sure;
         return { def, source: `matrix grid, ${rows} × ${cols} found automatically`, kind: 'grid' };
       } catch (e) { console.warn('Matrix size:', e); }
     }
-    return null;
+    return handGrid;
   }
 
   async function loadAutoDefinition(hid) {
@@ -511,8 +520,7 @@
   async function toggleGeneric() {
     if (!S.dev || S.busy) return;
     const k = viewKey(S.dev.vendorId, S.dev.productId);
-    if (S.sourceKind === 'generic') store.set(k, 'grid'); else store.del(k);
-    if (S.sourceKind === 'saved') store.del(defKey(S.dev.vendorId, S.dev.productId)); // a hand-set grid size
+    if (S.sourceKind === 'generic') store.set(k, 'grid'); else store.del(k); // a grid size set by hand is kept for the grid view
     await loadAutoDefinition(S.dev.hid);
   }
 
