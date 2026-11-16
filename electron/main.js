@@ -451,6 +451,10 @@ async function runSmoke() {
         await wait(1500);
         report.handGridBack = await view();
         await js(`localStorage.removeItem('lk.def.4c4b:0060'); 1`);
+        // an arrangement kept by an older version of the generic layout is worked out again
+        await js(`localStorage.setItem('lk.generic.4c4b:0060', JSON.stringify({ name: 'Old', vendorId: '0x4C4B', productId: '0x0060', matrix: { rows: 5, cols: 15 }, generic: { size: '60%', version: GenericLayout.VERSION - 1, defaults: [], extras: 0 }, layouts: { labels: [], keymap: [['0,0']] } })); App.attach(MockVia.create({ definition: false })).then(() => 1)`);
+        await wait(1500);
+        report.oldArrangement = { ...(await view()), keptVersion: await js(`JSON.parse(localStorage.getItem('lk.generic.4c4b:0060')).generic.version`), current: await js(`GenericLayout.VERSION`) };
       }
     }
     report.panel = await js(`document.querySelector('#devPanel').classList.contains('hidden') ? null : document.querySelector('#devPanel').innerText.replace(/\\n+/g, ' | ')`);
@@ -471,6 +475,8 @@ async function runSmoke() {
     report.message = await js(`document.querySelector('#toast').textContent`);
     report.status = await js(`document.querySelector('#devStatus').textContent`);
     report.keys = await js(`document.querySelectorAll('#kmBoard .key').length`);
+    // which matrix positions are shown as Backspace and the keys next to it (a generic layout's guess)
+    report.backspaceArea = await js(`(App.state.visible || []).filter((k) => k.row >= 0 && k.y < 1.5 && k.x >= 12.5 && k.x < 15).map((k) => k.row + ',' + k.col + '@' + k.x + ',' + k.y + 'w' + k.w).join(' ')`);
     report.definitions = await js(`window.localKeymap.listDefinitions().then((l) => l.length)`);
     await shot(`smoke-${SMOKE_MODE}.png`);
   } catch (err) {

@@ -9,7 +9,9 @@
 (function () {
   'use strict';
 
-  const VERSION = 1;
+  // arrangements kept by an older version are worked out again (2: remapped keys no longer pull a
+  // key out of its matrix row; 1.1.1)
+  const VERSION = 2;
   const TRNS = 1;
   const LAYER = 0x10000; // stands for any layer key (MO, TT, TG, OSL...)
 
@@ -34,7 +36,7 @@
     [slot('esc', 0.5, null, [KC.ESC, KC.GRV], 2),
       ...run(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], [1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(digit), 1.5),
       slot('mins', 11.5, KC.MINS), slot('eql', 12.5, KC.EQL),
-      slot('bs', 14, null, [KC.BSPC, KC.BSLS, KC.DEL], 2), slot('bs2', 14.5, null, BS2, 0.3), slot('r0', 15.5, null, NAV, 0.8)],
+      slot('bs', 14, null, [KC.BSPC, KC.BSLS, KC.DEL, KC.GRV], 2), slot('bs2', 14.5, null, BS2, 0.3), slot('r0', 15.5, null, NAV, 0.8)],
     [slot('tab', 0.75, KC.TAB),
       ...run('QWERTYUIOP'.split(''), 'QWERTYUIOP'.split('').map(letter), 2),
       slot('lbrc', 12, KC.LBRC), slot('rbrc', 13, KC.RBRC),
@@ -205,7 +207,8 @@
     //    keycode doesn't belong move to a place that suits what they do: the other half of a split
     //    backspace, a split left shift, a backslash... A placed key may make way if it has
     //    somewhere at least as good to go (a \ wired in the Enter row takes the \ place from a
-    //    Backspace that is really half of a split backspace).
+    //    Backspace that is really half of a split backspace). Keycodes can be remapped, so they
+    //    only overrule the wiring when they leave little doubt (see `leaves`).
     const byId = new Map();
     slotOf.forEach((id, k) => byId.set(id, k));
     const NEEDS = { bs2: 'bs', iso: 'lsft' };
@@ -232,6 +235,24 @@
     // letters and other keys with a place of their own were placed by position (a Colemak F sits
     // where QWERTY has E); they only move into their own empty place
     const coded = (id) => SLOT.get(id).s.code != null;
+    // A key placed in its own matrix row's row of the board leaves it only when its keycode doesn't
+    // suit that place, or when it repeats the key it would pair up with: the second Backspace of a
+    // split backspace wired where \ usually is. Otherwise the wiring wins. A Backspace on the \ key
+    // with ` and \ on the split halves (HHKB-like) looks just like a board wired the other way
+    // round, and VIA's list has about three boards with the extra half in the Enter row for each
+    // one with it in the \ key's place.
+    const leaves = (c, from, to) => {
+      const f = fits(c, from), t = fits(c, to);
+      if (t <= f) return false;
+      const pair = NEEDS[to] && byId.get(NEEDS[to]);
+      return !f || !!(pair && pair.code === c.code);
+    };
+    // the extra half of a pair is only shown next to its main key: a lone key goes to the main
+    // place (the top matrix row's key is the left half on most boards, whatever it types)
+    const fillMains = () => {
+      for (const [extra, main] of Object.entries(NEEDS)) if (byId.has(extra) && !byId.has(main)) move(byId.get(extra), main);
+    };
+    fillMains();
     for (let round = 0; round < 12; round++) {
       let best = null, gain = 0.01;
       for (const k of keys) {
@@ -246,12 +267,12 @@
           if (!c) { if (v - cost > gain) { gain = v - cost; best = [[k, id]]; } continue; }
           if (c.anchor || coded(id)) continue;
           // the key there moves to k's old place or to an empty one: within its row, or to another
-          // row only where it fits better (a Backspace from the \ place to a split backspace)
+          // row only where it clearly belongs (a second Backspace from the \ place to a split backspace)
           for (const dest of [cur, ...[...SLOT.keys()].filter((d) => !byId.has(d))]) {
             if (!dest || dest === id || !usable(dest, c)) continue;
             const v2 = value(c, dest);
             const sameRow = SLOT.get(dest).ri === SLOT.get(id).ri;
-            if (sameRow ? !v2 && dest !== cur : fits(c, dest) <= fits(c, id)) continue;
+            if (sameRow ? !v2 && dest !== cur : !leaves(c, id, dest)) continue;
             const g = v + v2 - value(c, id) - cost - 0.5;
             if (g > gain) { gain = g; best = [[c, dest], [k, id]]; }
           }
@@ -263,7 +284,7 @@
         byId.set(a, c); byId.set(b, k); slotOf.set(c, a); slotOf.set(k, b);
       } else best.forEach(([key, id]) => move(key, id));
     }
-    for (const [extra, main] of Object.entries(NEEDS)) if (byId.has(extra) && !byId.has(main)) move(byId.get(extra), main);
+    fillMains();
     // a right-hand column wired one matrix row down (common where a split backspace fills the top
     // row): the top key comes from the bottom matrix row and the others each from the row below
     const rc = ['r0', 'r1', 'r2', 'r3'].map((id) => byId.get(id));

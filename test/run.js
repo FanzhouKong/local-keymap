@@ -332,6 +332,16 @@ async function genericTests() {
   if (new Set(keys.map((k) => `${k.row},${k.col}`)).size !== 68 || keys.length !== 68) fail(`generic 65%: ${keys.length} keys shown with every option on`);
   const bottom = placedKeys(r.json).filter((k) => k.y === 4).sort((a, b) => a.x - b.x).map((k) => `${k.x}+${k.w}`).join(' ');
   if (bottom !== '0+1.5 1.5+1 2.5+1.5 4+7 11+1.5 13+1 14+1 15+1') fail(`generic 65%: bottom row ${bottom}`);
+  // the same board remapped: ` and \ on the split halves with Backspace on the \ key (as the real
+  // Sessantacinque is now), and HHKB's \ and `. Where the keys sit comes from the wiring, as in the
+  // board's own definition (left half 0,13, right half 2,13, \ key 1,13), not from what they type.
+  for (const [left, bsKey, right] of [[0x35, 0x2a, 0x31], [0x31, 0x2a, 0x35]]) {
+    const re = Uint16Array.from(L0);
+    re[13] = left; re[15 + 13] = bsKey; re[30 + 13] = right;
+    const g = GenericLayout.fit({ rows: 5, cols: 15, layers: [re, re.map((v) => (v ? 1 : 0)), ...layers.slice(2)], protocol: 12 });
+    const off = Object.entries(want).filter(([rc, id]) => g.placed.get(rc) !== id);
+    if (!g.ok || off.length) fail(`generic 65% remapped (${[left, bsKey, right].map((v) => v.toString(16))}): ${JSON.stringify(off)}`);
+  }
 
   // the demo keyboard (a 60%) without its definition comes out exactly as its definition says
   const dev = await connect(MockVia.create({ definition: false }));
@@ -354,13 +364,23 @@ async function genericTests() {
   const file = path.join(ROOT, 'generated', 'via-definitions.json.br');
   if (!fs.existsSync(file)) { console.log('generic vs VIA: bundle not built, skipped'); return; }
   const b = JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(file)));
-  let s = 777;
-  const rand = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
-  const oneOf = (a) => a[Math.floor(rand() * a.length)];
+  const seeds = { qwerty: 777, colemak: 777, hhkb: 2024, mirror: 2024 }; // qwerty and colemak share one sequence
+  const rand = (style) => {
+    const k = style === 'colemak' ? 'qwerty' : style === 'mirror' ? 'hhkb' : style;
+    return (seeds[k] = (seeds[k] * 1103515245 + 12345) >>> 0) / 4294967296;
+  };
+  let style = 'qwerty';
+  const oneOf = (a) => a[Math.floor(rand(style) * a.length)];
   const L = (t) => t.split('').map((ch) => ({ ';': 0x33, "'": 0x34, ',': 0x36, '.': 0x37, '/': 0x38, '[': 0x2f, ']': 0x30 }[ch] || 0x04 + ch.charCodeAt(0) - 65));
   const ALPHA = { qwerty: [L('QWERTYUIOP[]'), L("ASDFGHJKL;'"), L('ZXCVBNM,./')], colemak: [L('QWFPGJLUY;[]'), L("ARSTDHNEIO'"), L('ZXCVBKM,./')] };
+  // remapped split backspace boards: Backspace on the \ key, with \ and ` on the split halves (HHKB) or
+  // ` and \ ("mirror"). On the boards wired the less common way round (one half where \ usually is,
+  // the \ key in the Enter row) such a keymap looks just like the common wiring, so those come out
+  // wrong; about 77% of these boards come out right with their usual keymap.
+  ALPHA.hhkb = ALPHA.mirror = ALPHA.qwerty;
+  const TOP = { hhkb: [0x31, 0x35], mirror: [0x35, 0x31] };
   const NAV = [0x4c, 0x4a, 0x4b, 0x4e, 0x4d, 0x49, 0x35, 0x5221, 0xa8];
-  const tally = { qwerty: [0, 0], colemak: [0, 0] };
+  const tally = { qwerty: [0, 0], colemak: [0, 0], hhkb: [0, 0], mirror: [0, 0] };
   let splitBoards = 0, splitFound = 0;
   for (const d of Object.values(b.definitions)) {
     let p;
@@ -382,9 +402,9 @@ async function genericTests() {
     if (view.some((k) => k.r || k.h > 1) || ys.length !== 5 || width < 15.5 || width > 16.6 || view.length < 64 || view.length > 74) continue;
     const rowOf = (k) => ys.indexOf(Math.round(k.y));
     const viewPos = new Set(view.map((k) => `${k.row},${k.col}`));
-    for (const style of ['qwerty', 'colemak']) {
+    for (style of bs ? ['qwerty', 'colemak', 'hhkb', 'mirror'] : ['qwerty', 'colemak']) {
       // a keymap like a VIA default (or a Colemak user's): what each key is, by where it sits
-      const A = ALPHA[style], code = new Map(), used = new Set();
+      const A = ALPHA[style], top = TOP[style], code = new Map(), used = new Set();
       const order = [...view, ...all.filter((k) => !view.includes(k) && !viewPos.has(`${k.row},${k.col}`))];
       for (const k of order) {
         const pr = rowOf(k), x = k.x - minX, rk = `${k.row},${k.col}`;
@@ -392,8 +412,8 @@ async function genericTests() {
         const row = view.filter((q) => rowOf(q) === pr);
         const space = row.reduce((m, q) => (q.w > m.w ? q : m), row[0]);
         let v = [
-          () => (x < 1 ? 0x29 : x < 13 ? [0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e][Math.round(x) - 1] : x < 15 ? 0x2a : oneOf(NAV)),
-          () => (x < 1.5 ? 0x2b : x < 13.5 ? A[0][Math.round(x - 1.5)] : x < 15 ? 0x31 : oneOf(NAV)),
+          () => (x < 1 ? 0x29 : x < 13 ? [0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e][Math.round(x) - 1] : x < 15 ? (top ? top[x < 14 ? 0 : 1] : 0x2a) : oneOf(NAV)),
+          () => (x < 1.5 ? 0x2b : x < 13.5 ? A[0][Math.round(x - 1.5)] : x < 15 ? (top ? 0x2a : 0x31) : oneOf(NAV)),
           () => (x < 1.75 ? 0x39 : x < 12.75 ? A[1][Math.round(x - 1.75)] : x < 15 ? 0x28 : oneOf(NAV)),
           () => (x < 1.25 ? 0xe1 : x < 2.25 ? 0x64 : x < 12.25 ? A[2][Math.round(x - 2.25)] : x < 14 ? 0xe5 : x < 15 ? 0x52 : oneOf(NAV)),
           () => (k.w >= 2 ? 0x2c : k.x < space.x ? [0xe0, 0xe3, 0xe2][Math.min(2, row.filter((q) => q.x < k.x).length)]
@@ -423,8 +443,10 @@ async function genericTests() {
   }
   const pct = (t) => Math.round((100 * t[1]) / t[0]);
   if (tally.qwerty[0] < 250 || pct(tally.qwerty) < 78 || pct(tally.colemak) < 72) fail(`generic vs VIA: ${JSON.stringify(tally)}`);
+  if (pct(tally.hhkb) < 72 || pct(tally.mirror) < 71) fail(`generic vs VIA, remapped split backspace: ${JSON.stringify(tally)}`);
   if (splitFound < splitBoards * 0.95) fail(`generic vs VIA: split backspace found on ${splitFound} of ${splitBoards}`);
-  console.log(`generic vs VIA: ${tally.qwerty[0]} ANSI 65% keyboards, every key placed right on ${pct(tally.qwerty)}% (QWERTY) / ${pct(tally.colemak)}% (Colemak); split backspace found on ${splitFound} of ${splitBoards}`);
+  console.log(`generic vs VIA: ${tally.qwerty[0]} ANSI 65% keyboards, every key placed right on ${pct(tally.qwerty)}% (QWERTY, ${tally.qwerty[1]}) / ${pct(tally.colemak)}% (Colemak, ${tally.colemak[1]}); split backspace found on ${splitFound} of ${splitBoards}`);
+  console.log(`generic vs VIA: ${tally.hhkb[0]} with a split backspace, remapped with Backspace on the \\ key: ${pct(tally.hhkb)}% (\\ \` on the halves, ${tally.hhkb[1]}) / ${pct(tally.mirror)}% (\` \\, ${tally.mirror[1]})`);
 }
 
 // ------------------------------------------------------------------ 7) Endgame Gear mouse
