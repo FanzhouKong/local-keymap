@@ -2,7 +2,9 @@
  * "Any keyboard" mode listens to browser key events on a full-size ANSI layout.
  * "Switch matrix" mode polls a VIA keyboard's raw switch matrix, so it also sees Fn and remapped keys.
  * "Polling rate" mode reads each USB keyboard's polling rate from its descriptors (desktop app on
- * Windows/Linux) and measures it from key presses (any keyboard, see polling.js). */
+ * Windows/Linux) and measures it from key presses (any keyboard, see polling.js).
+ * "Mouse" mode shows which mouse buttons and wheel directions work, and counts presses that come too
+ * soon after the last release of the same button (a worn switch that double-clicks). */
 (function () {
   'use strict';
 
@@ -49,6 +51,7 @@
     els: new Map(),
     matrix: { running: false, keys: [], els: [], tested: new Set(), errors: 0, scans: 0, since: 0, last: null },
     poll: { times: [], usb: null, scanning: false, raf: 0 },
+    mouse: { pressed: new Set(), tested: new Set(), counts: {}, fast: {}, lastUp: {} },
   };
 
   const App = () => window.App;
@@ -63,6 +66,8 @@
     $('#tab-tester').dataset.mode = T.mode;
     if (T.mode === 'polling') {
       renderPolling();
+    } else if (T.mode === 'mouse') {
+      renderMouse();
     } else if (T.mode === 'browser') {
       const els = Board.render(host, LAYOUT, { maxUnit: 50 });
       els.forEach((el, i) => {
@@ -94,10 +99,10 @@
 
   function renderInfo() {
     if (T.mode === 'polling') { $('#testerCount').textContent = ''; return; }
-    const browser = T.mode === 'browser';
-    const total = browser ? LAYOUT.length : T.matrix.keys.filter((k) => k.row >= 0).length;
-    const tested = browser ? LAYOUT.filter((k) => T.tested.has(k.id)).length : T.matrix.tested.size;
-    $('#testerCount').textContent = total ? `${tested} / ${total} keys tested` : '';
+    const browser = T.mode === 'browser', mouse = T.mode === 'mouse';
+    const total = mouse ? MOUSE_PARTS.length : browser ? LAYOUT.length : T.matrix.keys.filter((k) => k.row >= 0).length;
+    const tested = mouse ? T.mouse.tested.size : browser ? LAYOUT.filter((k) => T.tested.has(k.id)).length : T.matrix.tested.size;
+    $('#testerCount').textContent = total ? `${tested} / ${total} ${mouse ? 'buttons' : 'keys'} tested` : '';
     $('#testerLast').classList.toggle('hidden', !browser);
     $('#testerExtrasWrap').classList.toggle('hidden', !browser || !T.extras.size);
     const ex = $('#testerExtras');
@@ -171,6 +176,7 @@
     T.pressed.clear(); T.tested.clear(); T.counts.clear(); T.extras.clear(); T.log = [];
     T.matrix.tested.clear();
     T.poll.times = [];
+    T.mouse = { pressed: new Set(), tested: new Set(), counts: {}, fast: {}, lastUp: {} };
     ['lastKey', 'lastCode', 'lastKeyCode'].forEach((id) => { $('#' + id).textContent = '-'; });
     render();
   }
@@ -367,6 +373,119 @@
     $('#testerRate').textContent = '';
   }
 
+  // ---------------------------------------------------------------- mouse buttons
+  // [id, name]: b0-b4 are the browser's button numbers (left, middle, right, back, forward)
+  const MOUSE_PARTS = [
+    ['b0', 'Left button'], ['b2', 'Right button'], ['b1', 'Middle button (wheel click)'], ['b3', 'Back (side button)'], ['b4', 'Forward (side button)'],
+    ['up', 'Wheel up'], ['down', 'Wheel down'], ['left', 'Wheel tilt left'], ['right', 'Wheel tilt right'],
+  ];
+  const partName = (id) => (MOUSE_PARTS.find(([p]) => p === id) || [id, id])[1];
+  const FAST_MS = 80; // a press this soon after the last release of the same button: likely the switch double-clicking
+
+  function renderMouse() {
+    $('#testerBoard').innerHTML = `
+      <div class="mt">
+        <div id="mtPad" class="mt-pad" tabindex="0" aria-label="Mouse test area: click, scroll and press the side buttons here">
+          <svg class="mt-mouse" viewBox="0 0 200 300" aria-hidden="true">
+            <path class="mt-body" d="M100 8 C158 8 186 52 188 118 L190 214 C191 262 152 294 100 294 C48 294 9 262 10 214 L12 118 C14 52 42 8 100 8 Z"/>
+            <path class="mt-part" data-part="b0" d="M97 11 C48 12 17 52 15 120 L97 120 Z"/>
+            <path class="mt-part" data-part="b2" d="M103 11 C152 12 183 52 185 120 L103 120 Z"/>
+            <rect class="mt-part" data-part="b1" x="88" y="38" width="24" height="50" rx="12"/>
+            <path class="mt-part" data-part="up" d="M100 17 L111 31 L89 31 Z"/>
+            <path class="mt-part" data-part="down" d="M100 109 L111 95 L89 95 Z"/>
+            <path class="mt-part" data-part="left" d="M71 63 L83 54 L83 72 Z"/>
+            <path class="mt-part" data-part="right" d="M129 63 L117 54 L117 72 Z"/>
+            <rect class="mt-part" data-part="b4" x="3" y="132" width="15" height="38" rx="7"/>
+            <rect class="mt-part" data-part="b3" x="3" y="176" width="15" height="38" rx="7"/>
+            <text x="52" y="92">L</text><text x="140" y="92">R</text>
+          </svg>
+          <p class="t-body-medium muted">Click, scroll and press the side buttons here</p>
+        </div>
+        <div class="mt-stats card filled">
+          <table>
+            <thead><tr><th>Button</th><th class="num">Presses</th><th class="num" title="Presses that came less than ${FAST_MS} ms after the same button was let go">Too fast</th></tr></thead>
+            <tbody id="mtRows"></tbody>
+          </table>
+          <p class="t-body-small muted">A press that comes less than ${FAST_MS} ms after the same button was let go is faster than a person double-clicks. If presses count up on single clicks, the switch is probably wearing out and double-clicking by itself.</p>
+        </div>
+      </div>`;
+    const pad = $('#mtPad');
+    pad.addEventListener('mousedown', onMouseDown);
+    pad.addEventListener('contextmenu', (e) => e.preventDefault());
+    pad.addEventListener('auxclick', (e) => e.preventDefault());
+    pad.addEventListener('wheel', onWheel, { passive: false });
+    $('#testerHint').textContent = 'Works with any mouse. Buttons light up while held and stay tinted once tested. Extra buttons that send keys instead (like a CPI button) show up in Any keyboard.';
+    paintMouse();
+  }
+
+  function paintMouse() {
+    const M = T.mouse;
+    document.querySelectorAll('#mtPad [data-part]').forEach((el) => {
+      el.classList.toggle('pressed', M.pressed.has(el.dataset.part));
+      el.classList.toggle('tested', M.tested.has(el.dataset.part));
+    });
+    const rows = $('#mtRows');
+    if (!rows) return;
+    rows.innerHTML = '';
+    MOUSE_PARTS.forEach(([id, name]) => {
+      const tr = document.createElement('tr');
+      const fast = M.fast[id] || 0;
+      tr.className = (M.pressed.has(id) ? 'on ' : '') + (fast ? 'warn' : '');
+      [name, M.counts[id] || 0, id.startsWith('b') ? fast : ''].forEach((v, i) => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        if (i) td.className = 'num';
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+  }
+
+  function onMouseDown(e) {
+    e.preventDefault(); // no text selection, no autoscroll from the middle button
+    const M = T.mouse, id = 'b' + e.button, now = performance.now();
+    if (!MOUSE_PARTS.some(([p]) => p === id)) { addLog(`↓ button ${e.button}`); renderInfo(); return; }
+    M.pressed.add(id);
+    M.tested.add(id);
+    M.counts[id] = (M.counts[id] || 0) + 1;
+    const gap = now - (M.lastUp[id] ?? -Infinity);
+    if (gap < FAST_MS) {
+      M.fast[id] = (M.fast[id] || 0) + 1;
+      addLog(`↓ ${partName(id)} (${Math.round(gap)} ms, too fast)`);
+    } else addLog(`↓ ${partName(id)}`);
+    paintMouse();
+    renderInfo();
+  }
+
+  function onMouseUp(e) {
+    if (T.mode !== 'mouse' || !active()) return;
+    if (e.button >= 3) e.preventDefault(); // no back/forward navigation
+    const id = 'b' + e.button;
+    if (!T.mouse.pressed.has(id)) return;
+    T.mouse.pressed.delete(id);
+    T.mouse.lastUp[id] = performance.now();
+    addLog(`↑ ${partName(id)}`);
+    paintMouse();
+    renderInfo();
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    const M = T.mouse, dirs = [];
+    if (e.deltaY) dirs.push(e.deltaY < 0 ? 'up' : 'down');
+    if (e.deltaX) dirs.push(e.deltaX < 0 ? 'left' : 'right');
+    for (const d of dirs) {
+      M.tested.add(d);
+      M.counts[d] = (M.counts[d] || 0) + 1;
+      M.pressed.add(d);
+      clearTimeout(M['t_' + d]);
+      M['t_' + d] = setTimeout(() => { M.pressed.delete(d); paintMouse(); }, 150);
+      if (T.log[0] !== `⟳ ${partName(d)}`) addLog(`⟳ ${partName(d)}`);
+    }
+    paintMouse();
+    renderInfo();
+  }
+
   // ---------------------------------------------------------------- wiring
   function setMode(mode) {
     T.mode = mode;
@@ -390,6 +509,8 @@
     window.addEventListener('keydown', onDown, true);
     window.addEventListener('keyup', onUp, true);
     window.addEventListener('blur', releaseAll);
+    window.addEventListener('mouseup', onMouseUp, true); // also when let go outside the test area
+    window.addEventListener('blur', () => { if (T.mouse.pressed.size) { T.mouse.pressed.clear(); if (T.mode === 'mouse') paintMouse(); } });
     document.addEventListener('lk:tab', () => { if (active()) render(); else stopMatrix(); });
     document.addEventListener('lk:resize', () => { if (active()) render(); });
     const refreshMatrix = () => {

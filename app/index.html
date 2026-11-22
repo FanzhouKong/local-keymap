@@ -12,6 +12,7 @@
   <!-- Material icons (Apache 2.0) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></symbol>
+    <symbol id="i-add" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
     <symbol id="i-tune" viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></symbol>
     <symbol id="i-usb" viewBox="0 0 24 24"><path d="M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93 0-1.21-.99-2.2-2.2-2.2-1.21 0-2.2.99-2.2 2.2 0 .85.5 1.56 1.2 1.93V13c0 1.11.89 2 2 2h3v3.05c-.71.37-1.2 1.1-1.2 1.95 0 1.22.99 2.2 2.2 2.2 1.21 0 2.2-.98 2.2-2.2 0-.85-.49-1.58-1.2-1.95V15h3c1.11 0 2-.89 2-2v-2h1V7h-4z"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></symbol>
@@ -40,13 +41,17 @@
   <div class="app">
     <nav class="rail" aria-label="Sections">
       <div class="rail-logo" aria-hidden="true" title="Local Keymap">LK</div>
+      <div id="appVersion" class="rail-version"></div>
       <button class="rail-item active" data-tab="tester">
         <span class="rail-ind"><svg class="icon"><use href="#i-keyboard"/></svg></span>
         <span class="rail-label">Tester</span>
       </button>
-      <button class="rail-item" data-tab="keymap">
-        <span class="rail-ind"><svg class="icon"><use href="#i-tune"/></svg></span>
-        <span class="rail-label">Keymap</span>
+      <div class="rail-divider" aria-hidden="true"></div>
+      <!-- one item per keyboard (main.js), then Add keyboard -->
+      <div id="railKeyboards" class="rail-group" role="group" aria-label="Keyboards"></div>
+      <button id="railAddKb" class="rail-item" title="Connect another keyboard">
+        <span class="rail-ind"><svg class="icon"><use href="#i-add"/></svg></span>
+        <span class="rail-label">Add keyboard</span>
       </button>
       <div class="rail-divider" aria-hidden="true"></div>
       <button class="rail-item" data-tab="mouse">
@@ -78,6 +83,7 @@
               <button data-mode="browser" class="active">Any keyboard</button>
               <button data-mode="matrix">Switch matrix</button>
               <button data-mode="polling">Polling rate</button>
+              <button data-mode="mouse">Mouse</button>
             </div>
             <button id="btnTesterReset" class="btn outlined"><svg class="icon"><use href="#i-refresh"/></svg>Reset</button>
             <button id="btnFullscreen" class="btn text" title="Fullscreen also captures keys like Win and Alt+Tab"><svg class="icon"><use href="#i-fullscreen"/></svg><span>Fullscreen</span></button>

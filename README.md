@@ -6,11 +6,12 @@ An offline desktop app for Windows, macOS and Linux. It covers the parts of VIA 
    - *Any keyboard* mode shows a full-size layout and lights up keys from normal key events. It shows press counts (handy for spotting chatter) and lists keys that aren't on the layout.
    - *Switch matrix* mode reads the physical switches straight from the firmware, so Fn and layer keys show up too.
    - *Polling rate* mode shows each USB keyboard's real polling rate, read from its USB descriptor (Windows and Linux), and measures it from your key presses (any keyboard, any system).
+   - *Mouse* mode works with any mouse: a test area that lights up the left, right, middle, back and forward buttons and the wheel (up, down, tilt), counts presses, and counts presses that come less than 80 ms after the same button was let go (a worn switch double-clicking by itself).
 2. **Keymap editor** for keyboards running VIA-compatible firmware (QMK with VIA, and Vial). It covers every layer, layout options (split backspace and so on), rotary encoders, layer-tap and mod-tap, backup and restore. Changes are written to the keyboard right away. **No definition file needed**: the layout is found automatically (see below). Keyboards with a split backspace option (over 800 in VIA's list, plus the Venom 60 HE) get a **Backspace: Full | Split** switch in the keyboard panel above the layout.
 3. **Geonworks Venom HE support** (tested with the Venom 60 HE RGB 7U): keymap editing on all 4 layers, the 4 profiles, split backspace, Venom function keys, the live switch test, and the **polling rate switch (8000 Hz / 1000 Hz)**.
 4. **Mouse tab for the Endgame Gear XM2w 4k v2** (on its 4K dongle or its cable): battery, firmware versions, CPI levels, polling rate up to 4000 Hz, motion sync, lift-off distance, glass mode, angle snapping, ripple control, button remapping, click filters and power saving.
 
-Everything runs on your computer: no internet, no accounts.
+Everything runs on your computer: no internet, no accounts. The version you're running is shown under the logo in the top-left corner.
 
 ## Install
 
@@ -36,12 +37,12 @@ First-run notes:
 
 ## Remap a VIA keyboard
 
-1. Open **Keymap**, click **Connect keyboard**, and pick the keyboard. Only keyboards the app can configure are listed. Next time it reconnects by itself.
+1. Click **Add keyboard** on the left and pick the keyboard. Only keyboards the app can configure are listed. Each keyboard you've added gets its own item on the left, with its name, while it's plugged in: click one to remap it (with several keyboards connected, that's how you choose). On start the app opens the keyboard you used last.
 2. The keyboard's layout appears by itself. The app looks in this order:
    1. a VIA definition you added yourself (the **Definition** button, or the definitions folder), if any;
    2. the layout **stored in the keyboard**: Vial keyboards carry their own;
    3. **VIA's keyboard list**: the definitions of the 2,000+ keyboards VIA supports ship inside the app, matched by USB ID;
-   4. a **generic 65% (or 60%) layout**: for a keyboard none of the above knows, the app reads the matrix size and keymap, and lays the keys out as a standard 65% board, going by what each key does now (Q goes where Q goes; a Home key goes in the right-hand column). It finds a split backspace (even when its second half is wired in another matrix row), a split left shift, and the bottom row's mods. The arrangement is kept, so remapping keys later doesn't move them, and where the keymap and the wiring disagree (Backspace moved onto the `\` key, `\` and `` ` `` on a split backspace) the wiring wins. On VIA's own 65% keyboards (their real wiring, a typical keymap) it places every key right on 4 out of 5; hold a key on the keyboard to see it light up, and if one is in the wrong place, click **Show as grid** or open the keyboard's definition file with **Definition file**. Keys that fit nowhere get a row under the board;
+   4. a **generic 65% (or 60%) layout**: for a keyboard none of the above knows, the app reads the matrix size and keymap, and lays the keys out as a standard 65% board, going by what each key does now (Q goes where Q goes; a Home key goes in the right-hand column). It finds a split backspace (even when its second half is wired in another matrix row), a split left shift, and the bottom row's mods. The arrangement is kept together with the keymap it came from, so remapping keys later doesn't move them (not even when a newer version of the app arranges it again). Where the keymap and the wiring disagree (Backspace moved onto the `\` key, `\` and `` ` `` on a split backspace, a split backspace half remapped to a letter) the wiring wins. On VIA's own 65% keyboards (their real wiring, a typical keymap) it places every key right on 4 out of 5; hold a key on the keyboard to see it light up, and if one is in the wrong place, click **Show as grid** or open the keyboard's definition file with **Definition file**. Keys that fit nowhere get a row under the board;
    5. otherwise a **matrix grid**: the app reads the matrix size from the keyboard and shows every key position in matrix order, labelled with what it does now. Hold a key on the keyboard and it lights up in the grid. If the size can't be worked out, or looks wrong, type the rows and columns in. A size typed in is kept for that keyboard but only replaces this automatic grid: a layout from steps 2–4 still comes first, and **Show as grid** brings the typed-in grid back.
 3. Click a key, then click what it should become. You can also:
    - type anything into **Any keycode**, for example `LT(1, KC_SPC)`, `LCTL_T(KC_ESC)`, `LCTL(KC_C)`, `MO(2)` or `0x7C16`;
@@ -83,7 +84,9 @@ Open the **Mouse** tab on the left and click **Connect mouse**. Pick the 4K dong
 
 Changes are collected until you click **Save to mouse**; then the app writes them and reads the settings back. **Defaults** loads the factory settings into the page (written when you save). **Try the demo mouse** shows the tab without a mouse.
 
-Pairing, firmware updates and the factory reset command stay in Endgame Gear's own tool: the app never sends those commands (they're blocked in `app/js/endgame.js`).
+Pairing, firmware updates and the factory reset command stay in Endgame Gear's own tool: the app never sends those commands (they're blocked in `app/js/endgame.js`, and again in `electron/hid-win.js`).
+
+On Windows the app reaches the mouse through Windows' own HID functions (a small helper in `electron/hid-win.js`, the same calls Endgame Gear's tool makes) rather than through the browser engine's WebHID. WebHID merges the dongle's five HID collections and, depending on the order Windows lists them in, can refuse every report the mouse needs; the Mouse tab then showed "mouse not answering" although the mouse was fine.
 
 ## Build from source
 
@@ -113,7 +116,8 @@ Pushing a tag like `v1.2.0` makes GitHub Actions build Windows, macOS and Linux 
 |---|---|
 | `electron/main.js` | Desktop shell: window, keyboard picker, remembered keyboards, definitions folders, VIA keyboard list lookup |
 | `electron/usb-polling.js` | Reads keyboards' polling rates from their USB descriptors (Windows, Linux) |
-| `electron/preload.js` | The small bridge the page can use (definitions, device picker) |
+| `electron/hid-win.js` | Windows: the Endgame Gear mouse's reports through Windows' own HID functions |
+| `electron/preload.js` | The small bridge the page can use (definitions, device picker, version, the mouse on Windows) |
 | `scripts/build-via-definitions.js` | Packs VIA's keyboard definitions into `generated/via-definitions.json.br` (about 190 KB) |
 | `app/` | The interface (plain HTML/CSS/JS, Material Design 3) |
 | `app/js/via.js` | VIA raw-HID protocol over WebHID, Vial layout and knobs, matrix-size detection |

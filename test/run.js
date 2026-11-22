@@ -342,6 +342,18 @@ async function genericTests() {
     const off = Object.entries(want).filter(([rc, id]) => g.placed.get(rc) !== id);
     if (!g.ok || off.length) fail(`generic 65% remapped (${[left, bsKey, right].map((v) => v.toString(16))}): ${JSON.stringify(off)}`);
   }
+  // the right half remapped to a letter (K, as on the real board while its switch was being checked)
+  // or to something nothing explains (a macro): still the split backspace, nothing under the board
+  for (const right of [0x0e, 0x7700]) {
+    const re = Uint16Array.from(L0);
+    re[13] = 0x35; re[15 + 13] = 0x2a; re[30 + 13] = right;
+    const g = GenericLayout.fit({ rows: 5, cols: 15, layers: [re, re.map((v) => (v ? 1 : 0)), ...layers.slice(2)], protocol: 12 });
+    const off = Object.entries(want).filter(([rc, id]) => g.placed.get(rc) !== id);
+    if (!g.ok || g.extras || off.length || !g.json.layouts.labels.includes('Split Backspace')) fail(`generic 65% right half as 0x${right.toString(16)}: extras=${g.extras} ${JSON.stringify(off)} ${JSON.stringify(g.json.layouts.labels)}`);
+    // kept with the arrangement, the keymap it was made from gives the same arrangement again
+    const again = GenericLayout.fit({ rows: 5, cols: 15, source: JSON.parse(JSON.stringify(g.json.generic.source)), protocol: 12 });
+    if (JSON.stringify(again.json.layouts) !== JSON.stringify(g.json.layouts)) fail(`generic 65% right half as 0x${right.toString(16)}: arranged differently from its kept keymap`);
+  }
 
   // the demo keyboard (a 60%) without its definition comes out exactly as its definition says
   const dev = await connect(MockVia.create({ definition: false }));
@@ -544,8 +556,33 @@ async function mouseTests() {
     if (g.lod !== back) fail(`mouse: lift-off after glass ${g.lod}`);
   });
 
-  // asleep behind the dongle; on the cable no link checks
+  // asleep behind the dongle (link check failing, or passing with the mouse's answers missing); on the
+  // cable no link checks
   try { await open({ asleep: true }); fail('mouse: asleep mouse answered'); } catch (e) { if (!e.asleep) fail('mouse: asleep error: ' + e.message); }
+  try { await open({ asleep: true, linkWhileAsleep: true }); fail('mouse: asleep mouse answered after a link check'); } catch (e) { if (!e.asleep) fail('mouse: asleep after a link check: ' + e.message); }
+  // the system refusing the transfer (as WebHID does on Windows) is an error, not a sleeping mouse
+  const refused = MockMouse.create();
+  refused.sendFeatureReport = () => Promise.reject(Object.assign(new Error('Failed to write the feature report.'), { name: 'NotAllowedError' }));
+  try { await new E(refused, { timeScale: 0 }).open(); fail('mouse: refused transfer went unnoticed'); } catch (e) { if (e.asleep || !e.transport) fail('mouse: refused transfer reported as ' + e.message); }
+  // on Windows the reports go through the desktop app's helper; without it, WebHID after all
+  const viaHelper = async (helperWorks) => {
+    const dongle = MockMouse.create(), calls = [];
+    const bridge = {
+      async open(pid) { calls.push('open'); if (!helperWorks) throw new Error("Error invoking remote method 'lk:mouse-hid': Error: The mouse helper did not start"); if (pid !== 0x1970) throw new Error('pid'); return { handle: 7, featureLength: 1041 }; },
+      async setFeature(h, b) { calls.push('set'); if (h !== 7 || b[0] !== 0xa1 || b.length !== 64) throw new Error('bad report'); await dongle.sendFeatureReport(b[0], b.slice(1)); },
+      async getFeature(h, id) { calls.push('get'); const v = await dongle.receiveFeatureReport(id); return new Uint8Array(v.buffer); },
+      async close() { calls.push('close'); },
+    };
+    const t = E.windowsTransport(dongle, bridge);
+    const m = new E(t, { timeScale: 0 });
+    await m.open();
+    await m.close();
+    return { m, t, calls, dongle };
+  };
+  const w = await viaHelper(true);
+  if (!w.m.settings || w.m.info.firmware !== '1.07' || w.t.route !== 'Windows' || !w.calls.includes('set') || w.calls[w.calls.length - 1] !== 'close') fail(`mouse: through the Windows helper ${JSON.stringify(w.calls.slice(0, 4))} ${w.t.route}`);
+  const fb = await viaHelper(false);
+  if (!fb.m.settings || fb.t.route !== 'WebHID' || fb.calls.includes('set')) fail('mouse: no fallback to WebHID when the helper is missing');
   const cable = await open({ wireless: false });
   if (cable.hid.mock.sent.some((x) => x[0] === 0x0f || x[0] === 0x0d)) fail('mouse: dongle commands sent on the cable');
   if (!cable.m.settings || cable.m.info.wireless) fail('mouse: cable mouse not read');

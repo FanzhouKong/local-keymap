@@ -35,7 +35,8 @@
 (function () {
   'use strict';
 
-  const SAFE = new Set([0x0f, 0x0d, 0x0e, 0xb4, 0x12, 0x14, 0x15, 0x16]);
+  const SAFE = new Set([0x0f, 0x0d, 0x0e, 0xb4, 0x12, 0x14, 0x15, 0x16]); // also checked in electron/hid-win.js
+  const MOUSE_READS = new Set([0x0e, 0xb4, 0x12]); // answered by the mouse itself, not the dongle
   const VID = 0x3367, PID_DONGLE = 0x1970, PID_WIRED = 0x1982;
   const CMD_ID = 0xa1, BLOCK_ID = 0xa0, CMD_LEN = 63, BLOCK_LEN = 1040, DATA = 16, BLOCK_SIZE = 1024;
 
@@ -259,24 +260,35 @@
       out.set(bytes.slice(0, 3));
       out[5] = chunk;
       if (payload) out.set(payload.slice(0, CMD_LEN - (DATA - 1)), DATA - 1);
-      await this.hid.sendFeatureReport(CMD_ID, out);
-      await sleep(wait * this.timeScale);
       const len = read === BLOCK_ID ? BLOCK_LEN : CMD_LEN;
       let r;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        r = EndgameMouse._full(await this.hid.receiveFeatureReport(read), read, len);
-        if (r[1] !== 3) break; // 3 = busy: wait and read again, as the official tool does
-        await sleep((wait + 200) * this.timeScale);
+      try {
+        await this.hid.sendFeatureReport(CMD_ID, out);
+        await sleep(wait * this.timeScale);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          r = EndgameMouse._full(await this.hid.receiveFeatureReport(read), read, len);
+          if (r[1] !== 3) break; // 3 = busy: wait and read again, as the official tool does
+          await sleep((wait + 200) * this.timeScale);
+        }
+      } catch (e) {
+        // the system refused the transfer, so nothing reached the dongle or the mouse
+        throw Object.assign(new Error(`Couldn’t talk to the ${this.info.wireless ? 'dongle' : 'mouse'}: ${e.message}`), { transport: true });
       }
-      if (r[1] !== 1) throw Object.assign(new Error(`The mouse answered command 0x${bytes[0].toString(16)} with status ${r[1]}`), { status: r[1] });
+      if (r[1] !== 1) {
+        const err = Object.assign(new Error(`The mouse answered command 0x${bytes[0].toString(16)} with status ${r[1]}`), { status: r[1] });
+        // behind the dongle, questions for a sleeping mouse come back busy or with another status (8, 17...)
+        if (this.info.wireless && MOUSE_READS.has(bytes[0])) err.asleep = true;
+        throw err;
+      }
       return r;
     }
 
     /** On the dongle: the link check the official tool sends before each command. */
     async _link() {
       if (!this.info.wireless) return;
-      try { await this._command([0x0f, 0x01], { wait: 300 }); return; } catch (_) { /* try the other form */ }
+      try { await this._command([0x0f, 0x01], { wait: 300 }); return; } catch (e) { if (e.transport) throw e; /* try the other form */ }
       try { await this._command([0x0f, 0x0f], { wait: 300 }); } catch (e) {
+        if (e.transport) throw e;
         throw Object.assign(new Error('The mouse isn’t answering through the dongle. Switch it on or move it to wake it up.'), { asleep: true });
       }
     }
@@ -370,11 +382,56 @@
     }
   }
 
+  /**
+   * On Windows the desktop app sends the mouse's reports through Windows' own HID calls
+   * (localKeymap.mouseHid, see electron/hid-win.js): WebHID can refuse every one of them there,
+   * depending on the order Windows lists the dongle's collections. This wraps the WebHID device so
+   * EndgameMouse uses it as before; when the helper can't open the mouse, WebHID is used after all.
+   */
+  function windowsTransport(device, bridge) {
+    let handle = null, web = false;
+    const plain = (e) => new Error(String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    return {
+      device, vendorId: device.vendorId, productId: device.productId, productName: device.productName, collections: device.collections,
+      get opened() { return web ? device.opened : handle !== null; },
+      get route() { return web ? 'WebHID' : 'Windows'; },
+      async open() {
+        try {
+          handle = (await bridge.open(device.productId)).handle;
+        } catch (e) {
+          console.warn('Talking to the mouse through WebHID:', plain(e).message);
+          web = true;
+          if (!device.opened) await device.open();
+        }
+      },
+      async close() {
+        if (web) { if (device.opened) await device.close(); return; }
+        const h = handle;
+        handle = null;
+        if (h !== null) await bridge.close(h).catch(() => {});
+      },
+      async sendFeatureReport(id, data) {
+        if (web) return device.sendFeatureReport(id, data);
+        const d = data instanceof Uint8Array ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const b = new Uint8Array(d.length + 1);
+        b[0] = id;
+        b.set(d, 1);
+        try { await bridge.setFeature(handle, b); } catch (e) { throw plain(e); }
+      },
+      async receiveFeatureReport(id) {
+        if (web) return device.receiveFeatureReport(id);
+        let b;
+        try { b = await bridge.getFeature(handle, id); } catch (e) { throw plain(e); }
+        return new DataView(b.buffer, b.byteOffset, b.byteLength);
+      },
+    };
+  }
+
   EndgameMouse.FILTER_DONGLE = { vendorId: VID, productId: PID_DONGLE, usagePage: 0xff01, usage: 0x0002 };
   EndgameMouse.FILTER_WIRED = { vendorId: VID, productId: PID_WIRED, usagePage: 0xff01, usage: 0x0002 };
   Object.assign(EndgameMouse, {
     POLLING, LOD, LOD_GLASS, SPDT, BUTTONS, ACTIONS, MODS, CPI_MIN, CPI_MAX, FILTER_MAX, ANGLE_MAX,
-    Settings: MouseSettings, describeAction,
+    Settings: MouseSettings, describeAction, windowsTransport,
   });
   window.EndgameMouse = EndgameMouse;
 })();

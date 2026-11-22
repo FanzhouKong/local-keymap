@@ -10,6 +10,7 @@
     dev: null, protocol: 0, layers: 0, macroCount: 0, def: null, kc: new Keycodes(12),
     keymap: null, enc: null, opts: [], layer: 0, sel: null, listen: false,
     visible: [], els: [], busy: false,
+    kbList: [], // keyboards this app may use that are plugged in (one rail item each)
   };
 
   // ------------------------------------------------------------------ helpers
@@ -100,17 +101,19 @@
    * them around. -> prepared definition, or null when the keyboard doesn't look like one. */
   async function genericDefinition(dev, rows, cols) {
     const key = genericKey(dev.vendorId, dev.productId);
+    let source = null;
     try {
       const kept = JSON.parse(store.get(key) || 'null');
-      if (kept && kept.generic && kept.generic.version === GenericLayout.VERSION && kept.matrix.rows === rows && kept.matrix.cols === cols) {
-        return prepareDefinition(kept);
+      if (kept && kept.generic && kept.matrix.rows === rows && kept.matrix.cols === cols) {
+        if (kept.generic.version === GenericLayout.VERSION) return prepareDefinition(kept);
+        // an older version's arrangement: arrange again from the keymap it was made from, so keys
+        // remapped since (a letter on a split backspace half...) don't move things around
+        source = kept.generic.source || null;
       }
     } catch (e) { console.warn(e); }
     setStatus('Arranging the keys…');
-    const layers = await dev.readKeymap(S.layers, rows, cols);
-    const fit = GenericLayout.fit({
-      rows, cols, layers, protocol: S.protocol, name: dev.name, vendorId: hex4(dev.vendorId), productId: hex4(dev.productId),
-    });
+    const opts = { rows, cols, protocol: S.protocol, name: dev.name, vendorId: hex4(dev.vendorId), productId: hex4(dev.productId) };
+    const fit = source ? GenericLayout.fit({ ...opts, source }) : GenericLayout.fit({ ...opts, layers: await dev.readKeymap(S.layers, rows, cols) });
     if (!fit.ok) return null;
     store.set(key, JSON.stringify(fit.json));
     return prepareDefinition(fit.json);
@@ -316,6 +319,12 @@
 
   async function connectClicked() {
     if (S.dev) { await detach(); return; }
+    await addKeyboard(false);
+  }
+
+  /** The device picker for one more keyboard; the chosen one opens (for remapping, with openKeymap). */
+  async function addKeyboard(openKeymap = true) {
+    if (openKeymap) setTab('keymap');
     if (!('hid' in navigator)) {
       toast('Keyboard access (WebHID) is not available here. Use the Local Keymap desktop app.', 'error', 8000);
       return;
@@ -323,14 +332,57 @@
     try {
       App.pickerFor = 'keyboard';
       const devs = await navigator.hid.requestDevice({ filters: [ViaDevice.FILTER, VenomDevice.FILTER] });
+      await refreshKeyboards();
       const d = devs.find(isSupported) || devs[0];
-      if (d) await attach(d);
+      if (d) await chooseKeyboard(d, openKeymap);
     } catch (e) {
       if (e.name !== 'NotFoundError') toast(e.message, 'error');
     }
   }
 
   const isSupported = (hid) => ViaDevice.isVia(hid) || VenomDevice.isVenom(hid);
+  const isReal = (hid) => typeof HIDDevice !== 'undefined' && hid instanceof HIDDevice;
+  const kbId = (hid) => `${hid.vendorId}:${hid.productId}:${hid.productName || ''}`;
+
+  // ------------------------------------------------------------------ the rail: one item per keyboard
+  /** Keyboards plugged in that this app may use (chosen in the device picker before). */
+  async function refreshKeyboards() {
+    try { S.kbList = 'hid' in navigator ? (await navigator.hid.getDevices()).filter(isSupported) : []; } catch (_) { S.kbList = []; }
+    renderRail();
+  }
+
+  /** Tester, one item per keyboard (lit while its keymap is open), Add keyboard, Mouse. */
+  function renderRail() {
+    const tab = document.body.dataset.tab;
+    document.querySelectorAll('.rail > [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    const list = S.kbList.slice();
+    if (S.dev && !list.includes(S.dev.hid)) list.push(S.dev.hid); // the demo keyboard
+    const host = $('#railKeyboards');
+    host.innerHTML = '';
+    const seen = new Map();
+    list.forEach((hid) => {
+      let name = String(hid.productName || 'Keyboard').trim();
+      const n = (seen.get(name) || 0) + 1;
+      seen.set(name, n);
+      if (n > 1) name += ` (${n})`;
+      const b = document.createElement('button');
+      b.className = 'rail-item' + (tab === 'keymap' && S.dev && S.dev.hid === hid ? ' active' : '');
+      b.title = `Remap ${name}`;
+      b.innerHTML = '<span class="rail-ind"><svg class="icon"><use href="#i-tune"/></svg></span><span class="rail-label"></span>';
+      b.querySelector('.rail-label').textContent = name;
+      b.addEventListener('click', () => chooseKeyboard(hid));
+      host.appendChild(b);
+    });
+    $('#railAddKb').classList.toggle('active', tab === 'keymap' && !S.dev);
+  }
+
+  /** Opens a keyboard's keymap, connecting it in place of the one open now. */
+  let switching = Promise.resolve();
+  function chooseKeyboard(hid, openKeymap = true) {
+    if (openKeymap) setTab('keymap');
+    switching = switching.then(() => (S.dev && S.dev.hid === hid ? null : attach(hid))).catch((e) => console.error(e));
+    return switching;
+  }
 
   async function attach(hid) {
     await detach();
@@ -346,6 +398,7 @@
       S.layers = await dev.layerCount();
       try { S.macroCount = await dev.macroCount(); } catch (_) { S.macroCount = 0; }
       S.kc = new Keycodes(S.protocol, [], { vialProtocol: dev.vialProtocol });
+      if (isReal(hid)) store.set('lk.lastKeyboard', kbId(hid)); // opened first on the next start
       updateStatus();
       emit('lk:device');
       await loadAutoDefinition(hid);
@@ -1020,9 +1073,9 @@
   // ------------------------------------------------------------------ tabs + wiring
   function isTabActive(name) { return $(`#tab-${name}`).classList.contains('active'); }
   function setTab(name) {
-    document.querySelectorAll('.rail [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
     document.body.dataset.tab = name; // the top bar shows the keyboard or the mouse connection
+    renderRail();
     $('#pageTitle').textContent = { keymap: 'Keymap', mouse: 'Mouse' }[name] || 'Key tester';
     if (name !== 'keymap') setListen(false);
     if (name === 'keymap' && S.def) renderKeymap();
@@ -1039,7 +1092,10 @@
 
   function init() {
     document.body.dataset.tab = 'tester';
-    document.querySelectorAll('.rail [data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+    document.querySelectorAll('.rail > [data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+    $('#railAddKb').addEventListener('click', () => addKeyboard());
+    document.addEventListener('lk:device', renderRail);
+    if (desktop && desktop.appVersion) desktop.appVersion().then((v) => { if (v) $('#appVersion').textContent = `v${v}`; }).catch(() => {});
     anyPreview();
     $('#btnConnect').addEventListener('click', connectClicked);
     $('#btnConnect2').addEventListener('click', connectClicked);
@@ -1087,9 +1143,18 @@
     if ('hid' in navigator) {
       navigator.hid.addEventListener('disconnect', (e) => {
         if (S.dev && e.device === S.dev.hid) { toast(`${S.dev.name} was unplugged.`); detach(); }
+        refreshKeyboards();
       });
-      navigator.hid.addEventListener('connect', (e) => { if (!S.dev && isSupported(e.device)) attach(e.device); });
-      navigator.hid.getDevices().then((ds) => { const d = ds.find(isSupported); if (d && !S.dev) attach(d); });
+      navigator.hid.addEventListener('connect', (e) => {
+        refreshKeyboards();
+        if (!S.dev && isSupported(e.device)) attach(e.device);
+      });
+      // on start: the keyboard opened last, or else the first one plugged in
+      refreshKeyboards().then(() => {
+        const last = store.get('lk.lastKeyboard');
+        const d = S.kbList.find((h) => kbId(h) === last) || S.kbList[0];
+        if (d && !S.dev) attach(d);
+      });
     } else {
       $('#noHid').classList.remove('hidden');
     }
@@ -1102,8 +1167,9 @@
     }
 
     updateStatus();
+    renderRail();
   }
 
-  window.App = { state: S, attach, detach, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, setTab, packOptions, unpackOptions, decodeMatrix, pickerFor: 'keyboard' };
+  window.App = { state: S, attach, detach, chooseKeyboard, refreshKeyboards, visibleKeys, toast, ask, setStatus, updateStatus, isTabActive, setTab, packOptions, unpackOptions, decodeMatrix, pickerFor: 'keyboard' };
   document.addEventListener('DOMContentLoaded', init);
 })();

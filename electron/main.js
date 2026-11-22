@@ -12,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
 const { usbPollingRates } = require('./usb-polling');
+const mouseHid = require('./hid-win');
 
 const ROOT = path.join(__dirname, '..');
 const SMOKE = process.argv.find((a) => a.startsWith('--smoke'));
@@ -110,6 +111,7 @@ const fromApp = (event) => {
   return typeof url === 'string' && url.startsWith('file://');
 };
 
+ipcMain.handle('lk:app-version', (e) => (fromApp(e) ? app.getVersion() : ''));
 ipcMain.handle('lk:list-definitions', (e) => (fromApp(e) ? listDefinitions() : []));
 ipcMain.handle('lk:read-definition', (e, source, file) => {
   if (!fromApp(e)) throw new Error('Not allowed');
@@ -121,6 +123,15 @@ ipcMain.handle('lk:via-info', (e) => {
   return b ? { count: b.count, commit: b.commit, generatedAt: b.generatedAt } : null;
 });
 ipcMain.handle('lk:usb-polling-rates', (e) => (fromApp(e) ? usbPollingRates() : { supported: false, keyboards: [] }));
+// the Endgame Gear mouse on Windows, through Windows' own HID calls (see hid-win.js for why)
+ipcMain.handle('lk:mouse-hid', (e, op, a, b) => {
+  if (!fromApp(e)) throw new Error('Not allowed');
+  if (op === 'open') return mouseHid.open(a);
+  if (op === 'set') return mouseHid.setFeature(a, b);
+  if (op === 'get') return mouseHid.getFeature(a, b);
+  if (op === 'close') return mouseHid.close(a);
+  throw new Error('Unknown request');
+});
 ipcMain.handle('lk:open-definitions-folder', async (e) => {
   if (!fromApp(e)) return '';
   const dir = definitionDirs()[0].dir;
@@ -234,6 +245,24 @@ async function runSmoke() {
     await wait(1200);
     report.page = await js(`({ title: document.title, hid: 'hid' in navigator, bridge: !!window.localKeymap, platform: window.localKeymap && window.localKeymap.platform })`);
     await shot('smoke-tester.png');
+    if (SMOKE_MODE === 'demo') {
+      // the tester's Mouse mode: a click, a second click 20 ms later (too fast), a side button, a scroll
+      await js(`document.querySelector('#testerMode [data-mode=mouse]').click(); 1`);
+      await wait(300);
+      report.mouseTester = await js(`(async () => {
+        const pad = document.querySelector('#mtPad'), pause = (ms) => new Promise((r) => setTimeout(r, ms));
+        const ev = (type, button) => (type === 'mousedown' ? pad : window).dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+        ev('mousedown', 0); await pause(30); ev('mouseup', 0); await pause(20); ev('mousedown', 0); await pause(30); ev('mouseup', 0);
+        await pause(200); ev('mousedown', 3); await pause(30); ev('mouseup', 3);
+        pad.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+        await pause(50);
+        return { count: document.querySelector('#testerCount').textContent,
+          rows: [...document.querySelectorAll('#mtRows tr')].map((tr) => [...tr.cells].map((c) => c.textContent).join(' | ')),
+          log: [...document.querySelectorAll('#testerLog li')].map((li) => li.textContent).slice(0, 6) };
+      })()`);
+      await shot('smoke-mouse-tester.png');
+      await js(`document.querySelector('#testerMode [data-mode=browser]').click(); 1`);
+    }
     if (SMOKE_MODE === 'mouse' || SMOKE_MODE === 'mousewrite' || SMOKE_MODE === 'mousedemo') {
       // mouse: the real Endgame Gear mouse, read only (status and settings, nothing is written);
       // mousewrite: the real mouse, three settings changed through the page and saved, then the mouse's
@@ -263,6 +292,7 @@ async function runSmoke() {
         report.mouse = await view();
         report.mouseSettings = await summary('MouseTab.state.saved');
         report.mouseInfo = await js(`MouseTab.state.dev && MouseTab.state.dev.info`);
+        report.mouseRoute = await js(`MouseTab.state.dev ? (MouseTab.state.dev.hid.route || 'WebHID') : null`); // Windows: the HID helper
         await shot('smoke-mouse.png');
         await js(`window.scrollTo(0, document.body.scrollHeight); 1`);
         await wait(300);
@@ -349,7 +379,7 @@ async function runSmoke() {
       await wait(300);
       throw Object.assign(new Error('done'), { done: true });
     }
-    await js(`document.querySelector('.rail [data-tab=keymap]').click(); 1`);
+    await js(`App.setTab('keymap'); 1`);
     if (SMOKE_MODE === 'picker') {
       // open the real device picker, screenshot it, then cancel
       await js(`App.detach().then(() => { document.querySelector('#btnConnect').click(); return 1; })`, true);
@@ -387,6 +417,18 @@ async function runSmoke() {
         const t = performance.now();
         try { const r = await d.detectMatrix(App.state.layers); return JSON.stringify(r) + ' in ' + Math.round(performance.now() - t) + ' ms'; }
         catch (e) { return 'error: ' + e.message; }
+      })()`);
+      // the rail lists each keyboard: open the demo next to the real one, then the real one from the rail
+      report.railSwitch = await js(`(async () => {
+        const realName = App.state.dev && App.state.dev.name;
+        if (!realName) return null;
+        const rail = () => [...document.querySelectorAll('#railKeyboards .rail-item')].map((b) => b.innerText.replace(/\\n+/g, ' ') + (b.classList.contains('active') ? ' *' : ''));
+        await App.attach(MockVia.create());
+        const withDemo = rail();
+        const item = [...document.querySelectorAll('#railKeyboards .rail-item')].find((b) => b.innerText.replace(/\\n+/g, ' ') === realName);
+        item.click();
+        for (let i = 0; i < 40 && (!App.state.dev || App.state.dev.name !== realName || !App.state.keymap); i++) await new Promise((r) => setTimeout(r, 250));
+        return { withDemo, back: rail(), open: App.state.dev && App.state.dev.name, tab: document.body.dataset.tab };
       })()`);
       // the keymap as read (already in memory, nothing more is sent): rows of hex keycodes per layer
       report.keymapRead = await js(`(() => {
@@ -477,7 +519,11 @@ async function runSmoke() {
     report.keys = await js(`document.querySelectorAll('#kmBoard .key').length`);
     // which matrix positions are shown as Backspace and the keys next to it (a generic layout's guess)
     report.backspaceArea = await js(`(App.state.visible || []).filter((k) => k.row >= 0 && k.y < 1.5 && k.x >= 12.5 && k.x < 15).map((k) => k.row + ',' + k.col + '@' + k.x + ',' + k.y + 'w' + k.w).join(' ')`);
+    // keys a generic layout couldn't place (the row under the board)
+    report.extraKeys = await js(`(App.state.visible || []).filter((k) => k.row >= 0 && k.y >= 5).map((k) => k.row + ',' + k.col).join(' ')`);
     report.definitions = await js(`window.localKeymap.listDefinitions().then((l) => l.length)`);
+    // the rail: version, then Tester, one item per keyboard (* = lit), Add keyboard, Mouse
+    report.rail = await js(`[document.querySelector('#appVersion').textContent, ...[...document.querySelectorAll('.rail .rail-item')].map((b) => b.innerText.replace(/\\n+/g, ' ') + (b.classList.contains('active') ? ' *' : ''))]`);
     await shot(`smoke-${SMOKE_MODE}.png`);
   } catch (err) {
     if (!err || !err.done) report.errors.push(String(err && err.stack || err));
@@ -504,4 +550,5 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin' || SMOKE) app.quit();
   });
+  app.on('will-quit', () => mouseHid.stop());
 }

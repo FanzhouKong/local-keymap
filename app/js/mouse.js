@@ -322,7 +322,10 @@
 
   async function attach(hid, opts) {
     await detach();
-    const dev = new E(hid, opts);
+    // on Windows the real mouse is reached through Windows' own HID calls (WebHID can refuse it there)
+    const bridge = window.localKeymap && window.localKeymap.mouseHid;
+    const real = typeof HIDDevice !== 'undefined' && hid instanceof HIDDevice;
+    const dev = new E(bridge && real ? E.windowsTransport(hid, bridge) : hid, opts);
     M.dev = dev;
     M.busy = true;
     $('#msStatus').textContent = `Connecting to ${dev.name}…`;
@@ -335,7 +338,7 @@
       if (e.asleep) M.asleep = true;
       else {
         console.error(e);
-        toast(`${dev.name} did not answer as expected (${e.message}).`, 'error', 8000);
+        toast(e.transport ? `${e.message}.` : `${dev.name} did not answer as expected (${e.message}).`, 'error', 8000);
         M.busy = false;
         await detach();
         return;
@@ -436,7 +439,7 @@
     window.addEventListener('keydown', onKeyDown);
     document.addEventListener('lk:tab', () => { if (!tabActive() && M.capture >= 0) { M.capture = -1; render(); } });
     if ('hid' in navigator) {
-      navigator.hid.addEventListener('disconnect', (e) => { if (M.dev && e.device === M.dev.hid) { toast(`${M.dev.name} was unplugged.`); detach(); } });
+      navigator.hid.addEventListener('disconnect', (e) => { if (M.dev && e.device === (M.dev.hid.device || M.dev.hid)) { toast(`${M.dev.name} was unplugged.`); detach(); } });
       navigator.hid.addEventListener('connect', (e) => { if (!M.dev && E.isEndgame(e.device)) attach(e.device); });
       navigator.hid.getDevices().then((ds) => { const d = ds.find((x) => E.isEndgame(x)); if (d && !M.dev) attach(d); });
     }

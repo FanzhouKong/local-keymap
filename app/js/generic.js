@@ -9,9 +9,11 @@
 (function () {
   'use strict';
 
-  // arrangements kept by an older version are worked out again (2: remapped keys no longer pull a
-  // key out of its matrix row; 1.1.1)
-  const VERSION = 2;
+  // arrangements kept by an older version are worked out again, from the keymap they were first worked
+  // out from when they kept it (2: remapped keys no longer pull a key out of its matrix row, 1.1.1;
+  // 3: a repeated letter or a key nothing explains no longer hides a split backspace, and the source
+  // keymap is kept, 1.1.2)
+  const VERSION = 3;
   const TRNS = 1;
   const LAYER = 0x10000; // stands for any layer key (MO, TT, TG, OSL...)
 
@@ -139,20 +141,30 @@
   }
 
   /**
-   * layers: keymap layers (flat Uint16Array per layer, rows * cols) as read from the keyboard.
+   * layers: keymap layers (flat Uint16Array per layer, rows * cols) as read from the keyboard, or
+   * source: { l0, present } kept from an earlier arrangement (layer 0 and which positions hold a key),
+   * so a newer version arranges the keymap the keyboard had when it was first seen, not later remaps.
    * -> { ok, json (a VIA-style definition), placed: Map "r,c" -> slot id, extras, keys, anchors }
    */
-  function fit({ rows, cols, layers, protocol = 12, name = 'Keyboard', vendorId = '0x0000', productId = '0x0000' }) {
+  function fit({ rows, cols, layers, source, protocol = 12, name = 'Keyboard', vendorId = '0x0000', productId = '0x0000' }) {
     const modern = protocol >= 11;
-    // QMK fills matrix positions outside the layout with KC_NO on every layer the firmware's keymap
-    // defines; layers it doesn't define are KC_TRNS everywhere and say nothing
     const n = rows * cols;
-    const defined = layers.filter((l, i) => i === 0 || Array.prototype.some.call(l.subarray(0, n), (v) => v === 0));
+    let l0, present;
+    if (source) {
+      l0 = Array.from(source.l0).slice(0, n);
+      present = Array.from(source.present).slice(0, n).map((v) => (v ? 1 : 0));
+    } else {
+      // QMK fills matrix positions outside the layout with KC_NO on every layer the firmware's keymap
+      // defines; layers it doesn't define are KC_TRNS everywhere and say nothing
+      const defined = layers.filter((l, i) => i === 0 || Array.prototype.some.call(l.subarray(0, n), (v) => v === 0));
+      l0 = Array.from(layers[0].subarray(0, n));
+      present = l0.map((_, i) => (defined.some((l) => l[i]) ? 1 : 0));
+    }
     const keys = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
-      if (!defined.some((l) => l[i])) continue;
-      keys.push({ row: r, col: c, code: basic(layers[0][i], modern) });
+      if (!present[i]) continue;
+      keys.push({ row: r, col: c, code: basic(l0[i], modern) });
     }
 
     // 1. each matrix row joins the row of the board its keys vote for
@@ -171,11 +183,18 @@
     for (let p = 0; p < 5; p++) {
       const rowKeys = keys.filter((k) => k.prow === p);
       if (!rowKeys.length) continue;
-      const count = new Map();
-      rowKeys.forEach((k) => count.set(k.code, (count.get(k.code) || 0) + 1));
+      // a repeated keycode pins nothing (split shifts often send Shift twice), except a letter or digit
+      // repeated within one matrix row: that's a key remapped to it, and `consistent` keeps the one in order
+      const count = new Map(), rowsOf = new Map();
+      rowKeys.forEach((k) => {
+        count.set(k.code, (count.get(k.code) || 0) + 1);
+        if (!rowsOf.has(k.code)) rowsOf.set(k.code, new Set());
+        rowsOf.get(k.code).add(k.row);
+      });
+      const canPin = (code) => count.get(code) === 1 || (code >= 0x04 && code <= 0x27 && rowsOf.get(code).size === 1);
       const groups = [...new Set(rowKeys.map((k) => k.row))].map((r) => {
         const group = rowKeys.filter((k) => k.row === r).sort((a, b) => a.col - b.col);
-        const cand = group.filter((k) => { const a = ANCHOR.get(k.code); return a && a[0] === p && count.get(k.code) === 1; })
+        const cand = group.filter((k) => { const a = ANCHOR.get(k.code); return a && a[0] === p && canPin(k.code); })
           .map((k) => ({ k, slot: ANCHOR.get(k.code)[1] }));
         const { keep, dir } = consistent(cand, group);
         keep.forEach(({ k, slot: s }) => { k.anchor = s; k.x = s.c; k.strong = true; });
@@ -298,6 +317,12 @@
       if (byId.has('r0') && !byId.has('bs2')) move(byId.get('r0'), 'bs2');
       ['r0', 'r1', 'r2'].forEach((id) => { if (byId.has(id)) { slotOf.delete(byId.get(id)); byId.delete(id); } });
       if (byId.has('r3') && !byId.has('rsft')) move(byId.get('r3'), 'rsft');
+    } else if (byId.has('bs') && !byId.has('bs2')) {
+      // a key nothing explains (remapped to a letter or a macro...) wired after every pinned key of the
+      // \ or Enter row: on most 65% boards that is the other half of a split backspace
+      const lastPin = (k) => keys.every((q) => q.row !== k.row || !q.anchor || q.col < k.col);
+      const loose = keys.filter((k) => !slotOf.has(k) && (k.prow === 1 || k.prow === 2) && lastPin(k));
+      if (loose.length === 1) move(loose[0], 'bs2');
     }
     const left = keys.filter((k) => !slotOf.has(k));
 
@@ -389,7 +414,7 @@
       ok, size, placed, extras, keys: keys.length, anchors,
       json: {
         name, vendorId, productId, matrix: { rows, cols },
-        generic: { size, version: VERSION, defaults, extras },
+        generic: { size, version: VERSION, defaults, extras, source: { l0, present } },
         layouts: { labels, keymap },
       },
     };

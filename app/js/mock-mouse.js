@@ -15,7 +15,9 @@
     0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01, 0xff, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00,
   ];
 
-  function create({ wireless = true, asleep = false, battery = 87 } = {}) {
+  /** asleep: the mouse is asleep behind the dongle. The dongle then fails the link check, or with
+   * linkWhileAsleep (as the real one often does) passes it and answers questions for the mouse with status 8. */
+  function create({ wireless = true, asleep = false, linkWhileAsleep = false, battery = 87 } = {}) {
     const block = new Uint8Array(1024);
     block.set(INITIAL);
     const answer = new Uint8Array(1040);
@@ -28,10 +30,10 @@
       answer[1] = 1;
       const awake = !state.asleep || !wireless;
       switch (cmd) {
-        case 0x0f: if (!awake || (d[1] !== 0x01 && d[1] !== 0x0f)) answer[1] = 2; break;
+        case 0x0f: if ((!awake && !linkWhileAsleep) || (d[1] !== 0x01 && d[1] !== 0x0f)) answer[1] = 2; break;
         case 0x0d: answer[17] = 0x01; answer[18] = 0x01; break; // dongle firmware 1.01
-        case 0x0e: if (awake) { answer[18] = 0x82; answer[19] = 0x19; answer[23] = 0x07; answer[24] = 0x01; } break;
-        case 0xb4: if (awake) answer[16] = state.battery; else answer[1] = 2; break;
+        case 0x0e: if (awake) { answer[18] = 0x82; answer[19] = 0x19; answer[23] = 0x07; answer[24] = 0x01; } else if (linkWhileAsleep) answer[1] = 8; break;
+        case 0xb4: if (awake) answer[16] = state.battery; else answer[1] = linkWhileAsleep ? 8 : 2; break;
         case 0x12: if (awake) answer.set(block, 16); else answer[1] = 2; break;
         case 0x14:
           if (d[1] !== 0x0f || d[2] !== 0x1c) { answer[1] = 2; break; }
