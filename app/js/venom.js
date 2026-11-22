@@ -12,7 +12,9 @@
  *   [217,0] / [217,1,b]  layout bits (bit 1 = split backspace)
  *   [230,0] / [230,1,x]  force 1000 Hz polling (x = 1) or default 8000 Hz (x = 0)
  *   [209]                live key-pressed bitmap, 128 keys from byte 3
- * Key type 1 = normal keycode (QMK-style 16 bit). 241 = Venom function key. Others are advanced (DKS, tap-hold...).
+ * Key type 1 = normal keycode (QMK-style 16 bit: basic keys, layers, macros, NKRO; not QMK's other quantum keys).
+ * 3 = Esc ~ (value 1 Esc 0x29, value 2 grave 0x35), the firmware's grave escape; venom.how sends exactly that.
+ * 241 = Venom function key. Others are advanced (DKS, tap-hold...).
  *
  * Commands that are NEVER sent by this app: 0x80-0x83 (firmware/IAP), 99 (macro toggle + reboot),
  * 214 (calibration), 238 (factory reset), 239 (bootloader), 86 / chunk writes (profile copy).
@@ -55,6 +57,12 @@
   };
   const LAYOUTS = { 0x4102: LAYOUT_60HE };
   const SPLIT_BS_BIT = 2;
+
+  // QMK's Esc ~ (QK_GRAVE_ESCAPE, VIA protocol 12) is a key type of its own on the Venom. Type 1 with 0x7C16
+  // is not something the firmware knows, so the editor's QK_GESC is written as this and read back as QK_GESC.
+  const GESC = 0x7c16;
+  const GESC_KEY = { type: 3, value: 0x29, value2: 0x35 };
+  const isGesc = (type, v1, v2) => type === GESC_KEY.type && v1 === GESC_KEY.value && v2 === GESC_KEY.value2;
 
   const u16 = (d, i) => d[i] | (d[i + 1] << 8);
 
@@ -138,7 +146,8 @@
             const idx = chunk * 16 + i;
             types[idx] = u16(t, 3 + i * 2);
             v2[idx] = u16(b, 3 + i * 2);
-            if (idx < rows * cols) codes[idx] = u16(a, 3 + i * 2);
+            const v1 = u16(a, 3 + i * 2);
+            if (idx < rows * cols) codes[idx] = isGesc(types[idx], v1, v2[idx]) ? GESC : v1;
           }
           if (onProgress) onProgress(++n / total);
         }
@@ -147,13 +156,18 @@
       return out;
     }
 
-    /** code: 16-bit keycode (normal key) or { type, value } for Venom function keys */
+    /** code: 16-bit keycode (normal key; QK_GESC becomes the Venom's Esc ~) or { type, value } for Venom function keys */
     async setKeycode(layer, row, col, code) {
       const idx = row * COLS + col;
-      const type = typeof code === 'object' ? code.type : 1;
-      const v1 = typeof code === 'object' ? code.value : code;
-      await this.send([87, layer, type & 255, type >> 8, v1 & 255, v1 >> 8, 0, 0, idx, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-      if (this.types[layer]) { this.types[layer][idx] = type; this.v2[layer][idx] = 0; }
+      const key = code === GESC ? GESC_KEY : typeof code === 'object' ? code : { type: 1, value: code };
+      const { type, value: v1, value2: v2 = 0 } = key;
+      await this.send([87, layer, type & 255, type >> 8, v1 & 255, v1 >> 8, v2 & 255, v2 >> 8, idx, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      if (this.types[layer]) { this.types[layer][idx] = type; this.v2[layer][idx] = v2; }
+    }
+
+    /** Whether a key of this type and value is one the editor can write (restore uses it). */
+    static writable(type, value) {
+      return type === 1 || type === 0 || type === 241 || (type === GESC_KEY.type && value === GESC);
     }
 
     async getEncoder() { throw Object.assign(new Error('No knobs on this keyboard'), { unhandled: true }); }
@@ -181,6 +195,7 @@
       const type = this.types[layer] ? this.types[layer][idx] : 1;
       if (type === 1 || type === 0) return null;
       const v1 = window.App.state.keymap[layer][idx];
+      if (type === GESC_KEY.type && v1 === GESC) return null; // shown as QK_GESC (Esc ~)
       if (type === 241) {
         const f = FUNCTION_KEYS.find((k) => k[0] === v1);
         return { label: f ? f[1] : `Fn\n0x${v1.toString(16)}`, title: f ? `Venom function: ${f[2]}` : `Venom function 0x${v1.toString(16)}` };

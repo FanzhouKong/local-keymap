@@ -9,7 +9,9 @@
  *  6. the generic 65% / 60% layout: hand-made cases, the demo keyboard against its own definition,
  *     and (with generated/) VIA's ANSI 65% keyboards, their real wiring with typical keymaps,
  *  7. the Endgame Gear mouse driver against a simulated mouse: reading, random edits written and read
- *     back, bytes it must not touch, commands it must never send, sleep and cable cases. */
+ *     back, bytes it must not touch, commands it must never send, sleep and cable cases,
+ *  8. the Venom driver against a simulated Venom: the bytes a key write sends (Esc ~ is key type 3, as
+ *     venom.how writes it) and how keys read back. */
 'use strict';
 
 const fs = require('fs');
@@ -24,10 +26,10 @@ const FIX = path.join(__dirname, 'fixtures');
 const ctx = { console, setTimeout, clearTimeout, TextDecoder, EventTarget, Event, addEventListener() {} };
 ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'polling.js', 'generic.js', 'mock.js', 'endgame.js', 'mock-mouse.js']) {
+for (const f of ['keycodes.js', 'kle.js', 'xz.js', 'via.js', 'venom.js', 'polling.js', 'generic.js', 'mock.js', 'endgame.js', 'mock-mouse.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'app', 'js', f), 'utf8'), ctx, { filename: f });
 }
-const { ViaDevice, KLE, XZ, PollingRate, GenericLayout, MockVia, EndgameMouse, MockMouse } = ctx;
+const { ViaDevice, VenomDevice, Keycodes, KLE, XZ, PollingRate, GenericLayout, MockVia, EndgameMouse, MockMouse } = ctx;
 const usb = require(path.join(ROOT, 'electron', 'usb-polling.js'));
 
 let failures = 0;
@@ -589,6 +591,79 @@ async function mouseTests() {
   console.log(`mouse: settings read and decoded, 40 random edits written and read back (${writes} section writes), refusals checked`);
 }
 
+// ------------------------------------------------------------------ 8) Venom
+// A simulated Venom 60 HE: per layer, 128 keys of type / value 1 / value 2, read 16 at a time (65/66/67)
+// and written one at a time (87). It answers like the real one: a report starting with the command byte.
+function fakeVenom() {
+  const layers = Array.from({ length: 4 }, () => ({ t: new Uint16Array(128).fill(1), a: new Uint16Array(128), b: new Uint16Array(128) }));
+  const sent = [];
+  let onInput = null;
+  const hid = {
+    vendorId: 0x534b, productId: 0x4102, productName: 'VENOM60HE RGB 7U', opened: true,
+    collections: [{ usagePage: 0xff53, usage: 0x61 }],
+    addEventListener(name, f) { if (name === 'inputreport') onInput = f; },
+    removeEventListener() {},
+    async open() {}, async close() {},
+    async sendReport(id, out) {
+      const d = Array.from(out);
+      sent.push(d);
+      const r = new Uint8Array(64);
+      r[0] = d[0];
+      if (d[0] === 87) {
+        const k = layers[d[1]], idx = d[8];
+        k.t[idx] = d[2] | (d[3] << 8); k.a[idx] = d[4] | (d[5] << 8); k.b[idx] = d[6] | (d[7] << 8);
+      } else if (d[0] >= 65 && d[0] <= 67) {
+        const src = layers[d[1]]['tab'[d[0] - 65]];
+        for (let i = 0; i < 16; i++) { const v = src[d[2] * 16 + i]; r[3 + i * 2] = v & 255; r[4 + i * 2] = v >> 8; }
+      } else {
+        r[0] = 0xff;
+      }
+      setTimeout(() => onInput({ data: new DataView(r.buffer) }), 0);
+    },
+  };
+  return { hid, layers, sent };
+}
+
+async function venomTests() {
+  const kc = new Keycodes(12);
+  const GESC = kc.parse('QK_GESC');
+  const { hid, layers, sent } = fakeVenom();
+  const v = new VenomDevice(hid);
+  // Esc ~ set in venom.how on Esc (0,9); something else of type 3 on (0,10); a function key on (0,12)
+  layers[0].t[9] = 3; layers[0].a[9] = 0x29; layers[0].b[9] = 0x35;
+  layers[0].t[10] = 3; layers[0].a[10] = 0x04; layers[0].b[10] = 0x05;
+  layers[0].t[12] = 241; layers[0].a[12] = 0x0101;
+  layers[0].a[17] = 0x14; // Q
+  let keymap = await v.readKeymap(4, 8, 16);
+  ctx.App = { state: { keymap } };
+  if (keymap[0][9] !== GESC || v.keyInfo(0, 0, 9, kc) !== null) fail(`venom: Esc ~ from venom.how read as ${kc.name(keymap[0][9])}`);
+  if (kc.label(keymap[0][9]) !== 'Esc\n~') fail('venom: Esc ~ label');
+  if (keymap[0][10] !== 0x04 || !v.keyInfo(0, 0, 10, kc)?.advanced) fail('venom: another type 3 key is not shown as advanced');
+  if (keymap[0][17] !== 0x14 || v.keyInfo(0, 1, 1, kc) !== null) fail('venom: plain key misread');
+
+  // assigning Esc ~ writes what venom.how writes: type 3, Esc, grave
+  sent.length = 0;
+  await v.setKeycode(0, 1, 1, GESC);
+  const w = sent[0];
+  if (!w || w[0] !== 87 || w[1] !== 0 || w[2] !== 3 || w[3] !== 0 || w[4] !== 0x29 || w[5] !== 0 || w[6] !== 0x35 || w[7] !== 0 || w[8] !== 17) fail(`venom: Esc ~ written as ${JSON.stringify(w && w.slice(0, 10))}`);
+  // other keys keep type 1 / 241 with value 2 = 0, and a plain key over Esc ~ clears it
+  await v.setKeycode(0, 0, 9, 0x2b);
+  await v.setKeycode(1, 0, 0, kc.parse('MO(1)'));
+  await v.setKeycode(0, 2, 0, { type: 241, value: 0x0104 });
+  const [tab, mo, fn] = sent.slice(1);
+  if (tab[2] !== 1 || tab[4] !== 0x2b || tab[6] !== 0 || tab[8] !== 9) fail(`venom: Tab over Esc ~ written as ${JSON.stringify(tab.slice(0, 10))}`);
+  if (mo[1] !== 1 || mo[2] !== 1 || (mo[4] | (mo[5] << 8)) !== 0x5221 || mo[6] !== 0) fail('venom: MO(1) written wrong');
+  if (fn[2] !== 241 || (fn[4] | (fn[5] << 8)) !== 0x0104 || fn[6] !== 0 || fn[8] !== 32) fail('venom: function key written wrong');
+  if (sent.some((d) => ![65, 66, 67, 87].includes(d[0]))) fail('venom: unexpected command sent');
+  keymap = await v.readKeymap(4, 8, 16);
+  ctx.App.state.keymap = keymap;
+  if (keymap[0][17] !== GESC || v.types[0][17] !== 3 || v.keyInfo(0, 1, 1, kc) !== null) fail('venom: Esc ~ did not read back');
+  if (keymap[0][9] !== 0x2b || v.types[0][9] !== 1) fail('venom: Tab over Esc ~ did not read back');
+  // restore may write Esc ~ and plain keys, never advanced keys
+  if (!VenomDevice.writable(3, GESC) || VenomDevice.writable(3, 0x04) || !VenomDevice.writable(1, 0x04) || !VenomDevice.writable(241, 0x0101) || VenomDevice.writable(5, 0x04)) fail('venom: writable() wrong');
+  console.log('venom: Esc ~ written as key type 3 and read back as QK_GESC, plain, layer and function keys unchanged');
+}
+
 (async () => {
   xzTests();
   await detectionTests();
@@ -597,6 +672,7 @@ async function mouseTests() {
   pollingTests();
   await genericTests();
   await mouseTests();
+  await venomTests();
   console.log(failures ? `\n${failures} failure(s)` : '\nall tests passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

@@ -1021,11 +1021,11 @@
         const v = parseInt(data.layers[l]?.[r]?.[c], 16);
         if (!Number.isFinite(v)) continue;
         if (venom) {
-          // Plain keys and Venom function keys can be restored; advanced keys (DKS, tap-hold...) can't.
+          // Plain keys, Esc ~ and Venom function keys can be restored; advanced keys (DKS, tap-hold...) can't.
           const bt = data.keyTypes?.[l]?.[r]?.[c] ?? 1;
           const ct = S.dev.types[l][r * cols + c];
           if (bt === ct && v === S.keymap[l][r * cols + c]) continue;
-          if ((bt !== 1 && bt !== 241) || (ct !== 1 && ct !== 241 && ct !== 0)) { skipped++; continue; }
+          if (bt === 0 || !VenomDevice.writable(bt, v) || !VenomDevice.writable(ct, S.keymap[l][r * cols + c])) { skipped++; continue; }
           changes.push({ l, r, c, v: bt === 241 ? { type: 241, value: v } : v });
         } else if (v !== S.keymap[l][r * cols + c]) {
           changes.push({ l, r, c, v });

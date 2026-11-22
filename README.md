@@ -68,6 +68,7 @@ Connect the same way. The Venom 60 HE layout is built in. Other Venom boards fal
 - **Backspace** switches the keyboard's own split backspace setting.
 - **Polling rate** sets 8000 Hz (default) or forces 1000 Hz. **Unplug and replug the keyboard to apply it**, then use **Check** to see the rate it now runs at. The panel shows the speed the keyboard is actually running at. Geonworks fixed this mode in firmware 148, so on older firmware it may not take effect; update through venom.how if so. The firmware has no 2000 or 4000 Hz setting.
 - **Venom tab** in the key picker: Win lock, Alt-F4 / Alt-Tab lock, OKS toggle, RGB keys, recalibrate.
+- **Esc ~** (Special → Handy) works on the Venom too: Esc, with ` when Win is held and ~ when Shift is held. The Venom stores it as a key type of its own rather than QMK's code, the same way venom.how does, and it is restored from backups.
 - Keys marked **★** are advanced keys (DKS, tap-hold, toggle…) made in venom.how. They're shown but can't be edited here, and assigning a normal key to one replaces it. Backups skip them on restore.
 - Calibration, firmware updates, lighting and factory reset stay in venom.how. This app never sends those commands. They're blocked in `app/js/venom.js`.
 
